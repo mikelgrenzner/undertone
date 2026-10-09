@@ -571,11 +571,12 @@ const SCHEMES = {
    base first, then the timer block, then the highlights. */
 const PALETTES = {
   inferno:   { name: 'Inferno',   h: [356, 24, 48] },
-  citrus:    { name: 'Citrus',    h: [66, 34, 4] },
+  // stops: the colors the field walks through, when there are more than the three that color the rest of the page
+  citrus:    { name: 'Citrus',    h: [88, 40, 4], stops: [92, 56, 30, 4] },
+  sunrise:   { name: 'Sunrise',   h: [226, 332, 52], tone: [[1, 2], [1, 5], [1, 9]] },
   sunset:    { name: 'Sunset',    h: [282, 338, 28] },
   tropical:  { name: 'Tropical',  h: [168, 334, 38] },
   bubblegum: { name: 'Bubblegum', h: [318, 196, 52] },
-  deepsea:   { name: 'Deep Sea',  h: [228, 198, 266] },
   aurora:    { name: 'Aurora',    h: [176, 230, 278] },
   // tone: for each of the three colors, how vivid it is and how much lighter or darker, so one can be a mist grey
   cascadia:  { name: 'Cascadia',  h: [212, 204, 150], sat: .5, tone: [[1, -6], [.2, 22], [1.05, -13]] }
@@ -589,7 +590,7 @@ function repaint() {
   const fixed = solo() || state.opts.palette !== 'video';
   const f = PALETTES[state.opts.fixed] || PALETTES.inferno;
   document.documentElement.classList.toggle('fixed', fixed);
-  if (fixed) paint({ h: f.h, sat: f.sat, tone: f.tone, sw: null }, f.name); else paint(videoPal.p, videoPal.label);
+  if (fixed) paint({ h: f.h, sat: f.sat, tone: f.tone, stops: f.stops, sw: null }, f.name); else paint(videoPal.p, videoPal.label);
   drawPalettes();
 }
 function paint(p, label) {
@@ -621,9 +622,9 @@ function cellColor(t, pal = curPalette, key = SCHEMES[state.opts.scheme] ? state
   const [h1, h2, h3] = pal.h, keep = SAT;
   SAT = pal.sat || 1;
   t = Math.min(1, Math.max(0, t));
-  const onGround = (h, s, l) => { SAT = keep; return hsl(...(ground === null ? [h, s, l] : readable(h, s, l, ground, 3))); };   // a shape needs 3:1 against the ground
+  const onGround = (h, s, l) => { SAT = keep; return hsl(...(ground === null ? [h, s, l] : readable(h, s, l, ground, 3.15))); };   // a shape needs 3:1 against the ground
   if (key === 'mono') return onGround(h1, sv(88), ground > .3 ? 22 + 34 * t : 40 + 42 * t);     // one hue: dark to light
-  const stops = [h1, h2, h3], x = Math.min(1.9999, t * 2), i = Math.floor(x), f = x - i;
+  const stops = pal.stops || [h1, h2, h3], last = stops.length - 1, x = Math.min(last - .0001, t * last), i = Math.floor(x), f = x - i;
   let d = norm(stops[i + 1]) - norm(stops[i]);
   if (d > 180) d -= 360; else if (d < -180) d += 360;            // the short way round the color wheel
   const [sat, from, to] = { poster: [92, 54, 64], midnight: [98, 56, 66], daylight: [88, 44, 54], dusk: [48, 52, 64] }[key];
