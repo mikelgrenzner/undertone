@@ -580,9 +580,13 @@ const PALETTES = {
   aurora:    { name: 'Aurora',    h: [176, 230, 278] },
   // tone: for each of the three colors, how vivid it is and how much lighter or darker, so one can be a mist grey
   cascadia:  { name: 'Cascadia',  h: [212, 204, 150], sat: .5, tone: [[1, -6], [.2, 22], [1.05, -13]], muted: true },
-  // autumn, in watercolor: turning ash leaves, an ear of glass gem corn, fog in the hollow
+  // autumn, in watercolor: turning ash leaves, a cranberry bog, heirloom squash, frost, a fire at dusk, larches, fog
   ash:       { name: 'White Ash', h: [104, 40, 6], sat: .6, stops: [104, 54, 28, 4], tone: [[.8, -2], [1, 9], [1, 4], [.95, -3]], muted: true },
-  harvest:   { name: 'Harvest',   h: [36, 348, 222], sat: .62, stops: [42, 350, 280, 222, 162], tone: [[1, 7], [1, -6], [.9, -3], [.95, -4], [.9, 2]], muted: true },
+  bog:       { name: 'Cranberry Bog', h: [346, 192, 150], sat: .62, stops: [346, 356, 40, 150, 192], tone: [[1, -8], [.75, 6], [.22, 20], [.6, 2], [.85, -6]], muted: true },
+  gourds:    { name: 'Gourds',        h: [168, 30, 18],   sat: .62, stops: [168, 150, 48, 30, 18],  tone: [[.55, 2], [.4, 10], [.3, 18], [.9, 6], [1, -2]], muted: true },
+  frost:     { name: 'First Frost',   h: [214, 18, 210],  sat: .62, stops: [16, 24, 210, 214],      tone: [[1, -4], [.5, 8], [.14, 24], [.7, -4]], muted: true },
+  bonfire:   { name: 'Bonfire',       h: [238, 22, 44],   sat: .62, stops: [238, 250, 20, 44],      tone: [[.7, -8], [.15, 8], [1, -2], [.9, 8]], muted: true },
+  larch:     { name: 'Larch',         h: [150, 50, 208],  sat: .62, stops: [50, 70, 150, 190, 208], tone: [[1, 8], [.8, 2], [.75, -10], [.6, 0], [.75, 2]], muted: true },
   hollow:    { name: 'Hollow',    h: [276, 256, 96], sat: .5, stops: [278, 252, 96], tone: [[.95, -7], [.16, 20], [.75, -2]], muted: true }
 };
 let curPalette = null, curLabel = '', booted = false, groundLum = 0;
