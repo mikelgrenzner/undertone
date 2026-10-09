@@ -348,7 +348,7 @@ textarea.field { width: 100%; min-height: 120px; font: 13px/1.4 ui-monospace, Me
 <dialog id="optsDlg" class="narrow" aria-labelledby="optsTitle">
   <div class="sheet">
     <header>
-      <h2 id="optsTitle">Timer options</h2>
+      <h2 id="optsTitle">Options</h2>
       <button class="btn small solid" id="optsClose" type="button">Close</button>
     </header>
     <div class="opts">
@@ -364,6 +364,14 @@ textarea.field { width: 100%; min-height: 120px; font: 13px/1.4 ui-monospace, Me
           <option value="keep">keep the music playing</option>
           <option value="lower">turn the music down</option>
           <option value="pause">pause the music</option>
+        </select>
+      </label>
+      <label>Shortest video to play
+        <select class="field" id="optMin">
+          <option value="0">any length</option>
+          <option value="1800">30 minutes</option>
+          <option value="3600">1 hour</option>
+          <option value="7200">2 hours</option>
         </select>
       </label>
       <label><input type="checkbox" id="optAuto"> Start the next block automatically</label>
@@ -462,8 +470,8 @@ const VOCALS = { 0: 'no vocals', 1: 'some vocals', 2: 'frequent vocals' };
 
 /* ───────── saved state (this browser only) ───────── */
 const KEY = 'undertone.v1';
-const state = { library: STARTER.map(s => ({ ...s })), log: {}, last: null, lists: {}, titles: {}, sky: null, liveSky: true, days: {},
-  opts: { preset: { f: 25, b: 5 }, onBreak: 'keep', auto: true, chime: true, scheme: 'poster', palette: 'video', fixed: 'inferno', solo: false } };
+const state = { library: STARTER.map(s => ({ ...s })), log: {}, last: null, lists: {}, titles: {}, dur: {}, sky: null, liveSky: true, days: {},
+  opts: { preset: { f: 25, b: 5 }, onBreak: 'keep', auto: true, chime: true, scheme: 'poster', palette: 'video', fixed: 'inferno', solo: false, minLen: 3600 } };
 try {
   const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
   if (saved) {
@@ -474,6 +482,7 @@ try {
     if (saved.titles) state.titles = saved.titles;
     if (saved.sky) state.sky = saved.sky;
     if (saved.days) state.days = saved.days;
+    if (saved.dur) state.dur = saved.dur;
     if (saved.liveSky === false) state.liveSky = false;
     if (saved.opts) Object.assign(state.opts, saved.opts);
   }
@@ -921,7 +930,7 @@ function setStatus(id, text, warn) { const el = $(id); el.textContent = text || 
    makes it impossible to tell whose videos you are choosing from. */
 let player = null, ready = false, apiState = 'idle', apiWaiter = null, token = 0, waitTimer = 0;
 let current = null, lists = [], listId = null, ids = [], lastVid = null, loggedVid = null, errors = 0, bad = new Set();
-let opening = null, hintTimer = 0, skips = 0;
+let opening = null, hintTimer = 0, skips = 0, lenSkips = 0, shortNote = '', passing = null, settle = false;
 let checking = null;
 
 function whenApi(fn) {
@@ -982,7 +991,7 @@ function openList(done) {
 }
 function playStation(st, alternates) {
   if (solo()) setSolo(false);
-  current = st; lastVid = loggedVid = null; errors = 0; skips = 0; ids = []; bad = new Set(); clearTimeout(hintTimer);
+  current = st; lastVid = loggedVid = null; errors = 0; skips = 0; lenSkips = 0; shortNote = ''; passing = null; settle = false; ids = []; bad = new Set(); clearTimeout(hintTimer);
   if ($('pickDlg').open) $('pickDlg').close();
   $('idle').hidden = true; $('now').hidden = false;
   $('npTitle').textContent = 'Loading ' + st.name;
@@ -1038,28 +1047,66 @@ function titleWeight(title) {
   const f = titleFit(title);
   return f <= -3 ? .25 : f >= 1.5 ? 2.5 : f > 0 ? 1.4 : f < 0 ? .7 : 1;
 }
-/* Unheard videos come first, then the ones heard longest ago. Within that, the draw is
-   weighted toward titles that suit today and away from ones that name another season. */
+/* Length. YouTube only tells a page how long a video is once the video has loaded, so the
+   page works from two things: lengths it has already seen (remembered for good), and
+   hints in the title for the rest. A video that turns out too short is skipped. */
+const minLen = () => +state.opts.minLen || 0;
+const lenLabel = secs => secs >= 3600 ? (secs / 3600) + (secs === 3600 ? ' hour' : ' hours') : (secs / 60) + ' minutes';
+function titleSeconds(title) {                                   // a length stated in the title, if there is one
+  let m = title.match(/(\d+(?:\.\d+)?)\s*-?\s*(?:hours?|hrs?|hr|h)\b/i);
+  if (m) return parseFloat(m[1]) * 3600;
+  m = title.match(/(\d+)\s*-?\s*(?:minutes?|mins?)\b/i);
+  return m ? +m[1] * 60 : null;
+}
+const LONGISH = /\b(mix|mixes|mixed|mixtape|compilation|full album|radio|live set|dj set|session|sessions|b2b|playlist|essentials|continuous|podcast|episode|live at|open air|24\/7|ambient|ambience|soundscapes?|sleep|study|studying|relax|relaxing|focus|meditation|journey|music for)\b/i;
+function lengthWeight(vid, title, min) {
+  if (!min) return 1;
+  const known = state.dur[vid];
+  if (known) return known >= min ? 3 : 0;                        // seen before: certain either way
+  const said = titleSeconds(title);
+  if (said !== null) return said >= min ? 2.5 : .05;
+  if (LONGISH.test(title)) return 1.5;
+  return /\s[-–—|]\s/.test(title) ? .3 : .6;                     // "Artist - Track" is usually a single
+}
+/* Which video next. Unheard ones are strongly preferred, then the ones heard longest ago.
+   Within that the draw is weighted toward titles that suit today and videos likely to be
+   long enough; ones known to be too short are left out. */
 async function chooseIndex() {
-  const st = current, order = candidates();
+  const st = current, order = candidates(), min = minLen();
+  settle = false;
   if (!order.length) return 0;
-  const batch = order.slice(0, 12);
-  const titles = await Promise.all(batch.map(c => fetchTitle(ids[c.i])));
-  if (st !== current) return batch[0].i;
-  let pool = batch.filter((c, k) => { c.t = titles[k]; if (c.t === null) bad.add(ids[c.i]); return c.t !== null; });
+  const usable = c => !bad.has(ids[c.i]) && !(min && state.dur[ids[c.i]] && state.dur[ids[c.i]] < min);
+  const pool = [];
+  for (let from = 0; from < order.length && from < 150; from += 30) {
+    const batch = order.slice(from, from + 30).filter(usable);
+    const titles = await Promise.all(batch.map(c => fetchTitle(ids[c.i])));
+    if (st !== current) return order[0].i;
+    batch.forEach((c, k) => {
+      if (titles[k] === null) return bad.add(ids[c.i]);
+      c.w = titleWeight(titles[k]) * lengthWeight(ids[c.i], titles[k], min) * (c.fresh ? 1 : .2);
+      if (c.w > 0) pool.push(c);
+    });
+    if (pool.filter(c => c.w >= 1).length >= 4) break;           // enough good candidates; no need to look further down the list
+  }
   const keys = Object.keys(state.titles);
-  if (keys.length > 1500) keys.slice(0, 400).forEach(k => delete state.titles[k]);
+  if (keys.length > 3000) keys.slice(0, 600).forEach(k => delete state.titles[k]);
   save();
-  if (!pool.length) { const rest = order.slice(12).find(c => !bad.has(ids[c.i])); return (rest || order[0]).i; }
-  pool = pool.some(c => c.fresh) ? pool.filter(c => c.fresh) : pool.slice(0, 4);
-  let r = Math.random() * pool.reduce((sum, c) => sum + titleWeight(c.t), 0);
-  for (const c of pool) { r -= titleWeight(c.t); if (r <= 0) return c.i; }
+  if (!pool.length) {                                            // nothing long enough is left: settle for the longest of the rest
+    const rest = order.filter(c => !bad.has(ids[c.i]));
+    if (!rest.length) return order[0].i;
+    settle = true;
+    const top = rest.slice().sort((p, q) => (state.dur[ids[q.i]] || 0) - (state.dur[ids[p.i]] || 0)).slice(0, 5);
+    return rest.find(c => top.includes(c)).i;
+  }
+  let r = Math.random() * pool.reduce((sum, c) => sum + c.w, 0);
+  for (const c of pool) { r -= c.w; if (r <= 0) return c.i; }
   return pool[pool.length - 1].i;
 }
 async function playNext() {
   const my = token, st = current;
   const i = await chooseIndex();
   if (my !== token || st !== current || !ready) return;
+  if (ids[i] === passing) passing = null;
   player.playVideoAt(i); nudge();
 }
 function onStateChange(e) {
@@ -1073,17 +1120,33 @@ function onStateChange(e) {
     themeFromVideo(lastVid, current);
   }
   $('npTitle').textContent = d.title || current.name;
-  if (bad.has(lastVid)) return;                                 // already being skipped
+  if (bad.has(lastVid) || lastVid === passing) return;          // already being skipped
   if (d.title && state.titles[lastVid] === undefined) {         // title wasn't known when this was chosen, so weigh it now
     state.titles[lastVid] = d.title;
     if (current.src.type !== 'video' && titleFit(d.title) <= -3 && skips < 2 && ids.length > 2 && Math.random() < .7) {
       skips++; bad.add(lastVid); return playNext();
     }
   }
+  let secs = 0; try { secs = Math.round(player.getDuration() || 0); } catch (x) {}
+  if (secs > 0 && !d.isLive && lastVid !== loggedVid) {         // the length is known now: remember it, and skip if it's too short
+    if (state.dur[lastVid] !== secs) {
+      state.dur[lastVid] = secs;
+      const all = Object.keys(state.dur); if (all.length > 5000) all.slice(0, 1000).forEach(k => delete state.dur[k]);
+    }
+    const min = minLen();
+    if (min && secs < min && current.src.type !== 'video') {
+      if (!settle && lenSkips < 8 && ids.length > 2) {
+        lenSkips++; passing = lastVid; save();
+        setStatus('npStatus', `That one is under ${lenLabel(min)}. Finding a longer one.`);
+        return playNext();
+      }
+      shortNote = `Nothing of ${lenLabel(min)} or more turned up on this station, so this one is shorter.`;
+    }
+  }
   if (e.data !== YT.PlayerState.PLAYING) return;
-  clearTimeout(hintTimer); setStatus('npStatus', '');
+  clearTimeout(hintTimer); setStatus('npStatus', shortNote);
   if (lastVid === loggedVid) return;
-  loggedVid = lastVid;                                          // it only counts as heard once it actually plays
+  loggedVid = lastVid; lenSkips = 0;                            // it only counts as heard once it actually plays
   const entry = state.log[current.id] || (state.log[current.id] = { n: 0, vids: {} });
   entry.last = Date.now(); entry.n++; entry.vids[lastVid] = Date.now();
   const keys = Object.keys(entry.vids);
@@ -1369,6 +1432,8 @@ document.addEventListener('keydown', e => {
 
 /* timer options */
 $('optBreak').value = state.opts.onBreak; $('optAuto').checked = state.opts.auto; $('optChime').checked = state.opts.chime;
+$('optMin').value = String(minLen());
+$('optMin').addEventListener('change', e => { state.opts.minLen = +e.target.value; save(); });
 $('optBreak').addEventListener('change', e => { state.opts.onBreak = e.target.value; save(); });
 $('optAuto').addEventListener('change', e => { state.opts.auto = e.target.checked; save(); });
 $('optChime').addEventListener('change', e => { state.opts.chime = e.target.checked; save(); });
@@ -1520,7 +1585,7 @@ if ('ResizeObserver' in window) new ResizeObserver(() => requestAnimationFrame(l
 else addEventListener('resize', layoutBlocks);
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(layoutBlocks);      // the numerals change size when the typeface arrives
 if (solo()) setSolo(true); else { showIdle(); showPicker(); }
-window.undertone = { state, playStation, applyPalette, readPalette, timer, advance, ctx, manual, refreshCtx, titleFit, titleWeight, ctxFit, rank, SCHEMES, PALETTES, paint, repaint, setSolo, cellColor, layoutBlocks, label: () => curLabel,
+window.undertone = { state, playStation, applyPalette, readPalette, timer, advance, ctx, manual, refreshCtx, titleFit, titleWeight, lengthWeight, titleSeconds, ctxFit, rank, SCHEMES, PALETTES, paint, repaint, setSolo, cellColor, layoutBlocks, label: () => curLabel,
   mainTimers: () => { if (pulse) { pulse.terminate(); pulse = null; } schedule(); } };   // for tests that fake the clock
 })();
 </script>
