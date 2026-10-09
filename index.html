@@ -945,8 +945,9 @@ function nudge() {
   clearTimeout(hintTimer);
   hintTimer = setTimeout(() => {
     let st = -1; try { st = player.getPlayerState(); } catch (e) {}
-    if (current && st !== YT.PlayerState.PLAYING && st !== YT.PlayerState.BUFFERING && !$('npStatus').textContent) setStatus('npStatus', 'Press play on the video to start the music.');
-  }, 4000);
+    // a browser that blocks sound from starting by itself can leave the player "buffering" for good, so that counts too
+    if (current && st !== YT.PlayerState.PLAYING && !$('npStatus').textContent) setStatus('npStatus', 'Press play on the video to start the music.');
+  }, 6000);
 }
 /* a video's title, from YouTube's public embed lookup; null means it can't be played off YouTube */
 async function fetchTitle(vid) {
