@@ -45,12 +45,15 @@ button, input, select, textarea { font: inherit; color: inherit; }
 button { cursor: pointer; }
 :focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
 
-/* blurred thumbnail behind everything: works even when the pixels can't be read */
+/* The thumbnail's colors behind everything. Script shrinks the thumbnail to a few dozen
+   pixels and the browser stretches that, which blurs it for free. Only when the pixels
+   can't be read does the browser blur the full picture itself (.live). */
 .backdrop {
-  position: fixed; inset: -12%; z-index: 0; pointer-events: none;
-  background-size: cover; background-position: center;
-  filter: blur(80px) saturate(1.7); opacity: 0; transition: opacity 1.2s ease;
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background-size: 100% 100%; background-position: center;
+  opacity: 0; transition: opacity 1.2s ease;
 }
+.backdrop.live { inset: -12%; background-size: cover; filter: blur(80px) saturate(1.7); }
 .backdrop.on { opacity: var(--bd); }
 /* a fixed palette has no thumbnail behind it, so the ground gets a wash of its own two accents */
 .fixed .backdrop { opacity: 0; }
@@ -142,7 +145,7 @@ button { cursor: pointer; }
   background: color-mix(in srgb, var(--ink) 10%, transparent); border-radius: calc(var(--cell) * .07);
 }
 .cells i.brk { border-radius: 50%; }
-.cells i span { position: absolute; inset: auto 0 0 0; height: 0; transition: height .3s linear, background-color var(--fade); }
+.cells i span { position: absolute; inset: auto 0 0 0; height: 0; transition: background-color var(--fade); }
 /* a focus block that runs to the end: the field ripples once, corner to corner */
 @keyframes pop { 0%, 100% { transform: scale(1); filter: none; } 40% { transform: scale(1.14); filter: brightness(1.4); } }
 .blocks.done .cells i { animation: pop .8s ease both; animation-delay: calc(var(--t, 0) * .8s); }
@@ -731,21 +734,42 @@ function drawPalettes() {
   if (!solo()) items.unshift({ key: 'video', name: 'From the video', preview: grad('conic-gradient(from 90deg, #f43, #fc3, #3c8, #38f, #c4f, #f43)') });
   ddPalette.set(items, solo() || state.opts.palette !== 'video' ? (PALETTES[state.opts.fixed] ? state.opts.fixed : 'inferno') : 'video');
 }
+/* a thumbnail shrunk to a soft smear of its colors, as a small picture the browser can stretch */
+function smear(img) {
+  const tiny = document.createElement('canvas'), out = document.createElement('canvas');
+  tiny.width = 16; tiny.height = 9; out.width = 96; out.height = 54;
+  const a = tiny.getContext('2d', { willReadFrequently: true }), b = out.getContext('2d');
+  a.imageSmoothingQuality = 'high'; a.drawImage(img, 0, 0, 16, 9);
+  const px = a.getImageData(0, 0, 16, 9);                        // throws if the image host forbids reading
+  for (let i = 0; i < px.data.length; i += 4) {                  // livelier: saturation up by two thirds
+    const [h, sat, l] = rgbToHsl(px.data[i], px.data[i + 1], px.data[i + 2]);
+    const [r, g, bl] = hslToRgb(h, Math.min(100, sat * 170), l * 100);
+    px.data[i] = r * 255; px.data[i + 1] = g * 255; px.data[i + 2] = bl * 255;
+  }
+  a.putImageData(px, 0, 0);
+  b.imageSmoothingQuality = 'high';
+  try { b.filter = 'blur(5px)'; } catch (e) {}
+  b.drawImage(tiny, -8, -5, 112, 64);                            // drawn a little oversize so the blur has no pale edge
+  return out.toDataURL('image/png');
+}
 function themeFromVideo(vid, station) {
   const url = `https://i.ytimg.com/vi/${vid}/mqdefault.jpg`;
   const bd = $('backdrop');
-  const backdrop = on => { bd.classList.remove('on'); if (on) setTimeout(() => { bd.style.backgroundImage = `url("${url}")`; bd.classList.add('on'); }, 350); };
+  const backdrop = (src, live) => {
+    bd.classList.remove('on');
+    if (src) setTimeout(() => { if (vid !== lastVid) return; bd.classList.toggle('live', live); bd.style.backgroundImage = `url("${src}")`; bd.classList.add('on'); }, 350);
+  };
   const fallback = () => applyPalette(hashPalette(station.id), 'Station colors');
   const img = new Image();
   img.crossOrigin = 'anonymous';
   img.onload = () => {
     if (vid !== lastVid) return;                                              // a newer video has started since
-    if (img.naturalWidth < 200) { backdrop(false); return fallback(); }      // YouTube's grey "no thumbnail" image
-    backdrop(true);
+    if (img.naturalWidth < 200) { backdrop(null); return fallback(); }       // YouTube's grey "no thumbnail" image
+    try { backdrop(smear(img), false); } catch (e) { backdrop(url, true); }
     try { const p = readPalette(img); if (p) applyPalette(p, 'Colors from this video'); else fallback(); }
     catch (e) { fallback(); }
   };
-  img.onerror = () => { if (vid !== lastVid) return; backdrop(true); fallback(); };
+  img.onerror = () => { if (vid !== lastVid) return; backdrop(url, true); fallback(); };
   img.src = url;
 }
 applyPalette({ h: [192, 44, 342], sw: null }, 'Starting colors');
@@ -1118,30 +1142,68 @@ $('modeBtn').addEventListener('click', () => setSolo(!solo()));
 /* ───────── timer ───────── */
 const timer = { f: state.opts.preset.f, b: state.opts.preset.b, phase: 'focus', round: 1, running: false, endAt: 0, total: 0, remaining: 0 };
 timer.total = timer.remaining = timer.f * 60000;
-let tick = 0, audio = null, wake = null, ducked = null, pausedByBreak = false;
+let audio = null, wake = null, ducked = null, pausedByBreak = false;
+
+/* Waking up. In view the page wakes once a second, to move the numerals. Out of view it
+   wakes once a minute, to move the tab's title, and exactly at the end of each block.
+   A worker keeps the time, because browsers slow the timers of a tab that is in the
+   background and silent, which would make the chime late. */
+let pulse = null, pulseTimer = 0;
+function workerPulse() {
+  try {
+    pulse = new Worker(URL.createObjectURL(new Blob(['let t=0;onmessage=e=>{clearTimeout(t);if(e.data>=0)t=setTimeout(()=>postMessage(0),e.data)}'], { type: 'text/javascript' })));
+    pulse.onmessage = () => step();
+    pulse.onerror = () => { pulse = null; schedule(); };
+  } catch (e) { pulse = null; }
+}
+workerPulse();
+function ring(ms) {
+  if (pulse) return pulse.postMessage(ms);
+  clearTimeout(pulseTimer); if (ms >= 0) pulseTimer = setTimeout(step, ms);
+}
+function schedule() {
+  if (!timer.running) return ring(-1);
+  const left = Math.max(0, timer.endAt - Date.now()), unit = document.hidden ? 60000 : 1000;
+  ring(Math.min(left, (left % unit) || unit) + 12);             // just past the next whole second or minute, never past the end
+}
+/* what is on screen now, so that only what changed is touched */
+const shown = { len: 0, minute: -1, day: '' };
+let fills = [];
+const put = (el, text) => { if (el.textContent !== text) el.textContent = text; };
 
 function drawClock() {
   const secs = Math.max(0, Math.ceil(timer.remaining / 1000)), m = Math.floor(secs / 60), s = secs % 60;
-  const text = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  const text = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0'), phase = timer.phase === 'focus' ? 'Focus' : 'Break';
+  const title = !timer.running ? 'Undertone' : document.hidden ? `${Math.ceil(timer.remaining / 60000)} min ${phase} | Undertone` : `${text} ${phase} | Undertone`;
+  if (document.title !== title) document.title = title;
+  if (document.hidden) return;                                   // nothing else can be seen; it is redrawn on return
   const el = $('clock');
-  if (el.dataset.t !== text) {
-    el.dataset.t = text; el.textContent = '';
-    for (const ch of text) { const n = document.createElement(ch === ':' ? 'i' : 'b'); n.textContent = ch; el.appendChild(n); }
-    el.setAttribute('aria-label', `${m} minutes ${s} seconds left`);
+  if (shown.len !== text.length) {                               // build the numerals once, then change single digits
+    el.textContent = ''; shown.len = text.length;
+    for (const ch of text) el.appendChild(document.createElement(ch === ':' ? 'i' : 'b'));
   }
-  $('phaseName').textContent = timer.phase === 'focus' ? 'Focus' : 'Break';
-  $('roundText').textContent = `Round ${timer.round} of ${ROUNDS}`;
-  $('startBtn').textContent = timer.running ? 'Pause' : (timer.remaining < timer.total ? 'Resume' : 'Start');
-  document.title = timer.running ? `${text} ${timer.phase === 'focus' ? 'Focus' : 'Break'} | Undertone` : 'Undertone';
+  if (el.dataset.t !== text) {
+    [...text].forEach((ch, k) => put(el.children[k], ch));
+    el.dataset.t = text; el.setAttribute('aria-label', `${m} minutes ${s} seconds left`);
+  }
+  put($('phaseName'), phase);
+  put($('roundText'), `Round ${timer.round} of ${ROUNDS}`);
+  put($('startBtn'), timer.running ? 'Pause' : (timer.remaining < timer.total ? 'Resume' : 'Start'));
   const gone = (timer.total - timer.remaining) / 60000;          // minutes used in this block
   const nF = Math.ceil(timer.f / unitF());
   const usedF = timer.phase === 'focus' ? gone / unitF() : Infinity;               // through the break, the finished squares stay lit
   const usedB = timer.phase === 'break' ? gone / unitB() : 0;
-  [...$('cells').children].forEach((cell, n) => {
+  fills.forEach((f, n) => {
     const i = n < nF ? n : n - nF, used = n < nF ? usedF : usedB;
-    cell.firstChild.style.height = (i < Math.floor(used) ? 100 : i === Math.floor(used) ? (used % 1) * 100 : 0) + '%';
+    const h = i < Math.floor(used) ? 100 : i === Math.floor(used) ? Math.round((used % 1) * 1000) / 10 : 0;
+    if (f.h !== h) { f.h = h; f.el.style.height = h + '%'; }
   });
-  $('blocks').setAttribute('aria-label', `${Math.floor(gone)} of ${timer.phase === 'focus' ? timer.f : timer.b} ${timer.phase} minutes passed, ${Math.ceil(timer.remaining / 60000)} left`);
+  const minute = Math.floor(gone) * 2 + (timer.phase === 'focus' ? 0 : 1);
+  if (shown.minute !== minute) {
+    shown.minute = minute;
+    $('blocks').setAttribute('aria-label', `${Math.floor(gone)} of ${timer.phase === 'focus' ? timer.f : timer.b} ${timer.phase} minutes passed, ${Math.ceil(timer.remaining / 60000)} left`);
+    if (shown.day !== dayKey()) drawToday();                     // past midnight the day's count starts again
+  }
 }
 /* One square per minute of focus, then one dot per minute of break, in a single field.
    They fill as time passes, each with its own color, so a finished round is a full
@@ -1154,6 +1216,7 @@ function drawBlocks() {
     const c = document.createElement('i'); if (i >= nF) c.className = 'brk';
     c.appendChild(document.createElement('span')); box.appendChild(c);
   }
+  fills = [...box.children].map(c => ({ el: c.firstChild, h: 0 }));
   $('legend').textContent = `One square is ${unitF() === 1 ? 'a minute' : 'five minutes'} of focus, one dot ${unitB() === 1 ? 'a minute' : 'five minutes'} of break. They fill as time passes.`;
   layoutBlocks();
 }
@@ -1184,7 +1247,8 @@ function celebrate() {
 /* finished focus blocks, kept per day: each bar is as wide as the block was long */
 const dayKey = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 function drawToday() {
-  const list = state.days[dayKey()] || [], box = $('ledger'); box.textContent = '';
+  shown.day = dayKey();
+  const list = state.days[shown.day] || [], box = $('ledger'); box.textContent = '';
   list.forEach((mins, i) => {
     if (i && i % ROUNDS === 0) { const sp = document.createElement('i'); sp.className = 'sp'; box.appendChild(sp); }
     const bar = document.createElement('i'); bar.style.width = Math.max(6, Math.round(mins * 1.6)) + 'px';
@@ -1223,15 +1287,19 @@ function usePreset(f, b) {
 function start() {
   if (timer.running) return;
   timer.running = true; timer.endAt = Date.now() + timer.remaining;
-  tick = setInterval(step, 250);
-  try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); if (audio.state === 'suspended') audio.resume(); } catch (e) {}
-  holdScreen(); drawClock();
+  // the sound engine is made here, on a click, and left asleep until a chime needs it
+  try {
+    audio = audio || new (window.AudioContext || window.webkitAudioContext)();
+    clearTimeout(audioRest); audio.resume(); audioRest = setTimeout(() => { try { audio.suspend(); } catch (e) {} }, 500);
+  } catch (e) {}
+  holdScreen(); drawClock(); schedule();
 }
-function stop() { timer.running = false; clearInterval(tick); releaseScreen(); }
+function stop() { timer.running = false; ring(-1); releaseScreen(); }
 function step() {
+  if (!timer.running) return;
   timer.remaining = timer.endAt - Date.now();
   if (timer.remaining <= 0) advance(true);
-  drawClock();
+  drawClock(); schedule();
 }
 function advance(announce) {
   const was = timer.phase;
@@ -1243,7 +1311,7 @@ function advance(announce) {
     notify(was === 'focus' ? `Break for ${timer.b} min` : `Focus for ${timer.f} min`, was === 'focus' ? 'Step away from the screen.' : `Round ${timer.round} of ${ROUNDS}.`);
     if (!state.opts.auto) stop();
   }
-  musicForPhase(); drawClock();
+  musicForPhase(); drawClock(); schedule();
 }
 function musicForPhase() {
   if (!ready) return;
@@ -1257,9 +1325,13 @@ function musicForPhase() {
     }
   } catch (e) {}
 }
-function chime(toBreak) {
+let audioRest = 0;
+async function chime(toBreak) {
   if (!audio) return;
-  const notes = toBreak ? [659.25, 523.25] : [523.25, 783.99], t0 = audio.currentTime;
+  clearTimeout(audioRest);
+  try { await audio.resume(); } catch (e) { return; }
+  audioRest = setTimeout(() => { try { audio.suspend(); } catch (e) {} }, 2500);   // back to sleep once the notes have rung out
+  const notes = toBreak ? [659.25, 523.25] : [523.25, 783.99], t0 = audio.currentTime + .03;
   notes.forEach((hz, i) => {
     const o = audio.createOscillator(), g = audio.createGain(), t = t0 + i * .32;
     o.type = 'sine'; o.frequency.value = hz;
@@ -1275,7 +1347,9 @@ async function holdScreen() {
   try { wake = await navigator.wakeLock.request('screen'); } catch (e) {}
 }
 function releaseScreen() { try { if (wake) wake.release(); } catch (e) {} wake = null; }
-document.addEventListener('visibilitychange', () => { if (!document.hidden && timer.running) { holdScreen(); step(); } });
+document.addEventListener('visibilitychange', () => {
+  if (timer.running) { if (!document.hidden) holdScreen(); step(); } else drawClock();   // switch between the per-second and per-minute pace
+});
 
 $('startBtn').addEventListener('click', () => { if (timer.running) { stop(); } else { start(); musicForPhase(); } drawClock(); });
 $('skipBtn').addEventListener('click', () => { advance(false); });
@@ -1435,7 +1509,8 @@ if ('ResizeObserver' in window) new ResizeObserver(() => requestAnimationFrame(l
 else addEventListener('resize', layoutBlocks);
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(layoutBlocks);      // the numerals change size when the typeface arrives
 if (solo()) setSolo(true); else { showIdle(); showPicker(); }
-window.undertone = { state, playStation, applyPalette, readPalette, timer, advance, ctx, manual, refreshCtx, titleFit, titleWeight, ctxFit, rank, SCHEMES, PALETTES, paint, repaint, setSolo, cellColor, layoutBlocks, label: () => curLabel };
+window.undertone = { state, playStation, applyPalette, readPalette, timer, advance, ctx, manual, refreshCtx, titleFit, titleWeight, ctxFit, rank, SCHEMES, PALETTES, paint, repaint, setSolo, cellColor, layoutBlocks, label: () => curLabel,
+  mainTimers: () => { if (pulse) { pulse.terminate(); pulse = null; } schedule(); } };   // for tests that fake the clock
 })();
 </script>
 </body>
