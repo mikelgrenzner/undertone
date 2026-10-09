@@ -248,6 +248,7 @@ textarea.field { width: 100%; min-height: 120px; font: 13px/1.4 ui-monospace, Me
       <div class="pick"><span class="label" id="styLabel">Style</span><div class="dd" id="ddStyle"></div></div>
     </div>
     <div class="row tools">
+      <button class="btn small" id="fillBtn" type="button" aria-pressed="false" title="Show every square and dot filled, to compare palettes. The timer is not affected.">Preview colors</button>
       <button class="btn small" id="optsBtn" type="button">Options</button>
       <button class="btn small" id="modeBtn" type="button" aria-pressed="false" title="Run the timer and colors with no YouTube player">Timer only</button>
       <button class="btn small" id="openLib" type="button">Library</button>
@@ -1168,7 +1169,7 @@ function schedule() {
 }
 /* what is on screen now, so that only what changed is touched */
 const shown = { len: 0, minute: -1, day: '' };
-let fills = [];
+let fills = [], previewAll = false;                             // previewAll: show the whole field lit, for comparing palettes
 const put = (el, text) => { if (el.textContent !== text) el.textContent = text; };
 
 function drawClock() {
@@ -1195,7 +1196,7 @@ function drawClock() {
   const usedB = timer.phase === 'break' ? gone / unitB() : 0;
   fills.forEach((f, n) => {
     const i = n < nF ? n : n - nF, used = n < nF ? usedF : usedB;
-    const h = i < Math.floor(used) ? 100 : i === Math.floor(used) ? Math.round((used % 1) * 1000) / 10 : 0;
+    const h = previewAll || i < Math.floor(used) ? 100 : i === Math.floor(used) ? Math.round((used % 1) * 1000) / 10 : 0;
     if (f.h !== h) { f.h = h; f.el.style.height = h + '%'; }
   });
   const minute = Math.floor(gone) * 2 + (timer.phase === 'focus' ? 0 : 1);
@@ -1364,6 +1365,9 @@ $('optBreak').value = state.opts.onBreak; $('optAuto').checked = state.opts.auto
 $('optBreak').addEventListener('change', e => { state.opts.onBreak = e.target.value; save(); });
 $('optAuto').addEventListener('change', e => { state.opts.auto = e.target.checked; save(); });
 $('optChime').addEventListener('change', e => { state.opts.chime = e.target.checked; save(); });
+$('fillBtn').addEventListener('click', () => {
+  previewAll = !previewAll; $('fillBtn').setAttribute('aria-pressed', String(previewAll)); drawClock();
+});
 $('optsBtn').addEventListener('click', () => $('optsDlg').showModal());
 $('optsClose').addEventListener('click', () => $('optsDlg').close());
 $('cUse').addEventListener('click', () => {
