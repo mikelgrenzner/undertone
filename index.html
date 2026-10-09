@@ -1,0 +1,1371 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Undertone</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Undertone">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" id="themeColor" content="#0d2a31">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600;700&family=Unbounded:wght@500;700;800&display=swap">
+<style>
+/* Layout: a color-blocked poster. Video on the left in a frame taken from the
+   thumbnail's main color, timer on the right as one solid block of its second
+   color. Every color below is rewritten by script when the video changes. */
+:root {
+  color-scheme: dark;
+  --bg: hsl(192 58% 11%);
+  --bg-hi: hsl(192 48% 18%);
+  --line: hsl(192 40% 30%);
+  --ink: hsl(192 45% 96%);
+  --ink-soft: hsl(192 30% 76%);
+  --c: hsl(192 88% 62%);      --c-ink: hsl(192 45% 9%);   --c-text: hsl(192 88% 64%);
+  --a: hsl(44 95% 58%);       --a-ink: hsl(44 45% 9%);    --a-edge: transparent;
+  --bd: .34;
+  --b: hsl(342 88% 64%);      --b-ink: hsl(342 45% 9%);
+  --display: "Unbounded", "Arial Black", "Helvetica Neue", Arial, sans-serif;
+  --ui: "Instrument Sans", "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --fade: .9s ease;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; }
+body {
+  background: var(--bg); color: var(--ink);
+  font: 500 16px/1.45 var(--ui);
+  transition: background-color var(--fade), color var(--fade);
+  -webkit-font-smoothing: antialiased;
+}
+[hidden] { display: none !important; }
+button, input, select, textarea { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: 3px solid var(--ink); outline-offset: 3px; }
+
+/* blurred thumbnail behind everything: works even when the pixels can't be read */
+.backdrop {
+  position: fixed; inset: -12%; z-index: 0; pointer-events: none;
+  background-size: cover; background-position: center;
+  filter: blur(80px) saturate(1.7); opacity: 0; transition: opacity 1.2s ease;
+}
+.backdrop.on { opacity: var(--bd); }
+
+.app {
+  position: relative; z-index: 1;
+  max-width: 1360px; margin: 0 auto;
+  padding-block: calc(18px + env(safe-area-inset-top, 0px)) calc(28px + env(safe-area-inset-bottom, 0px));
+  padding-inline: max(16px, env(safe-area-inset-left, 0px)) max(16px, env(safe-area-inset-right, 0px));
+  display: grid; gap: 20px;
+}
+.top { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.mark { font: 800 1.25rem/1 var(--display); letter-spacing: -.02em; margin: 0; color: var(--c-text); transition: color var(--fade); }
+.swatches { display: flex; align-items: center; gap: 10px; margin-left: auto; font-size: .8125rem; color: var(--ink-soft); }
+.swatches ol { display: flex; margin: 0; padding: 0; list-style: none; }
+.swatches li { width: 22px; height: 22px; transition: background-color var(--fade); }
+.swatches li:first-child { border-radius: 11px 0 0 11px; }
+.swatches li:last-child { border-radius: 0 11px 11px 0; }
+
+.btn {
+  border: 2px solid var(--line); background: transparent; color: var(--ink);
+  padding: 9px 16px; border-radius: 999px; font-weight: 600; line-height: 1.2;
+  transition: background-color .2s, border-color var(--fade), color var(--fade);
+}
+.btn:hover { background: var(--bg-hi); }
+.btn.solid { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+.btn.solid:hover { background: var(--c); border-color: var(--c); color: var(--c-ink); }
+.btn.small { padding: 6px 12px; font-size: .875rem; }
+.btn[aria-pressed="true"] { background: var(--b); border-color: var(--b); color: var(--b-ink); }
+/* a fixed palette has no thumbnail behind it, so the ground gets a wash of its own two accents */
+.fixed .backdrop { opacity: 0; }
+.fixed body {
+  background-image:
+    radial-gradient(75% 60% at 88% 0%, color-mix(in srgb, var(--a) 26%, transparent), transparent 70%),
+    radial-gradient(70% 60% at 0% 100%, color-mix(in srgb, var(--b) 24%, transparent), transparent 70%);
+  background-attachment: fixed;
+}
+
+.main { display: grid; gap: 20px; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); align-items: start; }
+.stage, .deck { display: grid; gap: 16px; min-width: 0; }
+
+/* video frame */
+.frame { background: var(--c); padding: 10px; border-radius: 4px; transition: background-color var(--fade); }
+.frame .ratio { position: relative; aspect-ratio: 16 / 9; background: #000; max-width: 100%; }
+.frame iframe, .frame #player { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
+
+.panel { background: var(--bg-hi); border-radius: 4px; padding: 20px; display: grid; gap: 16px; transition: background-color var(--fade); }
+.panel h2 { font: 700 1.25rem/1.2 var(--display); letter-spacing: -.01em; margin: 0; text-wrap: balance; }
+.q { display: grid; gap: 8px; border: 0; padding: 0; margin: 0; min-width: 0; }
+.q legend { padding: 0; margin-bottom: 8px; font-weight: 600; color: var(--ink-soft); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  border: 2px solid var(--line); background: transparent; color: var(--ink);
+  padding: 10px 16px; border-radius: 999px; font-weight: 600; line-height: 1.15; text-align: left;
+  transition: background-color .2s, border-color var(--fade), color var(--fade);
+}
+.chip:hover { border-color: var(--ink); }
+.chip[aria-pressed="true"] { background: var(--b); border-color: var(--b); color: var(--b-ink); }
+.chip small { display: block; font-weight: 500; font-size: .8125rem; opacity: .8; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.outside { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
+.outside p { margin: 0; font-weight: 600; }
+.ctx { display: grid; gap: 12px; padding: 14px; border: 2px solid var(--line); border-radius: 4px; transition: border-color var(--fade); }
+.ctx .chip { padding: 7px 13px; font-size: .9375rem; }
+
+.now .title { font: 700 1.125rem/1.3 var(--ui); margin: 0; overflow-wrap: anywhere; }
+.now .from { margin: 2px 0 0; color: var(--ink-soft); font-size: .9375rem; }
+.now a { color: var(--c-text); font-weight: 600; text-underline-offset: 3px; transition: color var(--fade); }
+.status { margin: 0; font-size: .9375rem; color: var(--ink-soft); }
+.status:empty { display: none; }
+.status.warn { color: var(--ink); background: color-mix(in srgb, var(--b) 30%, transparent); padding: 8px 12px; border-radius: 4px; }
+.label { margin: 0; font-weight: 600; color: var(--ink-soft); font-size: .9375rem; }
+
+/* timer block */
+.timer { background: var(--a); color: var(--a-ink); border-radius: 4px; padding: 24px; display: grid; gap: 18px; box-shadow: inset 0 0 0 3px var(--a-edge); transition: background-color var(--fade), color var(--fade), box-shadow var(--fade); }
+.phase { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.phase strong { font: 700 1.125rem/1 var(--display); }
+.phase span { font-weight: 600; }
+.clock { font: 800 clamp(4rem, 9.2vw, 8.75rem)/.9 var(--display); letter-spacing: -.03em; display: flex; margin: 0; white-space: nowrap; }
+.clock b { font-weight: inherit; display: inline-block; width: .78em; text-align: center; }
+.clock i { font-style: normal; display: inline-block; width: .34em; text-align: center; }
+.time { display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: flex-end; --cell: clamp(18px, 2vw, 28px); }
+.blocks { display: flex; gap: 10px; align-items: flex-end; }
+.cells { display: grid; gap: 4px; margin: 0; }
+.cells i { position: relative; display: block; width: var(--cell); height: var(--cell); background: color-mix(in srgb, var(--a-ink) 16%, transparent); overflow: hidden; }
+.cells i span { position: absolute; inset: auto 0 0 0; height: 100%; background: var(--a-ink); transition: height .3s linear, background-color var(--fade); }
+.cells.brk { grid-auto-flow: column; }
+.cells.brk i { border-radius: 50%; }
+.today { flex: 1 1 150px; min-width: 0; display: grid; gap: 6px; align-content: end; }
+.today p { margin: 0; font-weight: 600; font-size: .9375rem; }
+.ledger { display: flex; flex-wrap: wrap; gap: 4px; align-items: flex-end; }
+.ledger i { display: block; height: 18px; background: var(--a-ink); transition: background-color var(--fade); }
+.ledger i.sp { width: 6px; background: none; }
+.legend { margin: 0; font-size: .8125rem; opacity: .85; }
+.timer .row .btn { border-color: var(--a-ink); color: var(--a-ink); }
+.timer .row .btn:hover { background: color-mix(in srgb, var(--a-ink) 14%, transparent); }
+.timer .row .btn.solid { background: var(--a-ink); color: var(--a); min-width: 7.5em; }
+.timer .row .btn.solid:hover { background: var(--a-ink); color: var(--a); opacity: .88; }
+.timer :focus-visible { outline-color: var(--a-ink); }
+
+.presets .chip { display: grid; gap: 2px; }
+.presets .chip b { font: 700 1rem/1.1 var(--display); letter-spacing: -.01em; }
+.picks { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 14px; }
+.pick { display: grid; gap: 6px; min-width: 0; }
+.dd { position: relative; }
+.dd-btn {
+  width: 100%; display: flex; align-items: center; gap: 10px; text-align: left; line-height: 1.2;
+  border: 2px solid var(--line); background: var(--bg); color: var(--ink); padding: 10px 14px; border-radius: 4px; font-weight: 600;
+  transition: background-color var(--fade), border-color var(--fade), color var(--fade);
+}
+.dd-btn:hover { border-color: var(--ink); }
+.dd-btn .caret { flex: none; margin-left: auto; width: 9px; height: 9px; border-right: 2px solid; border-bottom: 2px solid; transform: translateY(-3px) rotate(45deg); }
+.dd-list {
+  position: absolute; z-index: 20; left: 0; right: 0; top: calc(100% + 4px); margin: 0; padding: 4px; list-style: none;
+  background: var(--bg); border: 2px solid var(--line); border-radius: 4px; max-height: min(360px, 60vh); overflow: auto;
+  box-shadow: 0 12px 32px rgb(0 0 0 / .4);
+}
+.dd.up .dd-list { top: auto; bottom: calc(100% + 4px); }
+.dd-list:focus-visible { outline-offset: 0; }
+.dd-list li { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 3px; cursor: pointer; font-weight: 600; }
+.dd-list li.act { background: var(--bg-hi); }
+.dd-list li[aria-selected="true"] { background: var(--b); color: var(--b-ink); }
+.dd-list li[aria-selected="true"].act { box-shadow: inset 0 0 0 2px var(--ink); }
+.prev { flex: none; display: flex; box-shadow: 0 0 0 1px rgb(128 128 128 / .45); border-radius: 8px; overflow: hidden; }
+.prev.grad { width: 48px; height: 16px; }
+.prev.dots i { width: 16px; height: 16px; display: block; }
+details summary { cursor: pointer; font-weight: 600; color: var(--ink-soft); }
+.opts { display: grid; gap: 12px; padding-top: 12px; }
+.opts label { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.field {
+  background: var(--bg); border: 2px solid var(--line); border-radius: 4px; padding: 8px 10px; color: var(--ink); min-width: 0;
+  transition: background-color var(--fade), border-color var(--fade);
+}
+input[type="number"].field { width: 5.5em; }
+input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--b); }
+
+/* library drawer */
+dialog { border: 0; padding: 0; background: var(--bg); color: var(--ink); width: min(920px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); border-radius: 4px; box-shadow: 0 0 0 4px var(--c); }
+dialog::backdrop { background: rgb(0 0 0 / .6); }
+.lib { padding: 20px; display: grid; gap: 18px; }
+.lib header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.lib header h2 { font: 700 1.25rem/1.2 var(--display); margin: 0; margin-right: auto; }
+.stations { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.stations li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; padding: 10px 12px; background: var(--bg-hi); border-radius: 4px; }
+.stations .name { font-weight: 700; overflow-wrap: anywhere; }
+.stations .meta { grid-column: 1; font-size: .875rem; color: var(--ink-soft); }
+.stations .acts { grid-row: 1 / span 2; grid-column: 2; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.add { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); align-items: end; }
+.add label { display: grid; gap: 4px; font-size: .875rem; font-weight: 600; color: var(--ink-soft); }
+.add .wide { grid-column: 1 / -1; }
+textarea.field { width: 100%; min-height: 120px; font: 13px/1.4 ui-monospace, Menlo, Consolas, monospace; }
+.note { margin: 0; font-size: .875rem; color: var(--ink-soft); max-width: 68ch; }
+
+/* timer only: no video column, the timer becomes the page */
+.main.solo { grid-template-columns: minmax(0, 1fr); }
+.main.solo .stage { display: none; }
+@media (min-width: 901px) {
+  .main.solo .deck { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); align-items: start; }
+  .main.solo .timer { grid-row: 1 / span 3; padding: 32px; gap: 24px; }
+  .main.solo .clock { font-size: clamp(5rem, 12.5vw, 12rem); }
+  .main.solo .time { --cell: clamp(22px, 2.6vw, 38px); }
+}
+@media (max-width: 900px) {
+  .main { grid-template-columns: minmax(0, 1fr); }
+  .clock { font-size: clamp(4rem, 21vw, 8rem); }
+  .frame { padding: 6px; }
+}
+@media (max-width: 520px) {
+  .timer, .panel, .lib { padding: 16px; }
+  .swatches span { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  :root { --fade: 0s; }
+  .backdrop { transition: none; }
+}
+</style>
+</head>
+<body>
+<div class="backdrop" id="backdrop" aria-hidden="true"></div>
+
+<div class="app">
+  <header class="top">
+    <h1 class="mark">Undertone</h1>
+    <div class="swatches" aria-hidden="true">
+      <span id="swLabel">Starting colors</span>
+      <ol id="swList"><li></li><li></li><li></li><li></li><li></li></ol>
+    </div>
+    <button class="btn" id="modeBtn" type="button" aria-pressed="false" title="Run the timer and colors with no YouTube player">Timer only</button>
+    <button class="btn" id="openLib" type="button">Library</button>
+  </header>
+
+  <main class="main">
+    <section class="stage" aria-label="Music">
+      <div class="frame" id="frame" hidden>
+        <div class="ratio"><div id="player"></div></div>
+      </div>
+
+      <div class="panel" id="picker">
+        <h2>What do you need right now?</h2>
+        <div class="outside">
+          <p id="ctxLine">Picking for right now.</p>
+          <button class="btn small" id="ctxToggle" type="button" aria-expanded="false" aria-controls="ctxEdit">Change</button>
+        </div>
+        <div class="ctx" id="ctxEdit" hidden>
+          <div class="chips" id="cSeason" role="group" aria-label="Season"></div>
+          <div class="chips" id="cTime" role="group" aria-label="Time of day"></div>
+          <div class="chips" id="cSky" role="group" aria-label="Sky"></div>
+          <div class="row">
+            <button class="btn small" id="ctxAuto" type="button">Back to automatic</button>
+            <label class="row"><input type="checkbox" id="optSky"> Use live Puget Sound weather</label>
+          </div>
+        </div>
+        <fieldset class="q">
+          <legend>Where's your head?</legend>
+          <div class="chips" id="qHead">
+            <button class="chip" type="button" data-v="stuck" aria-pressed="false">Can't get started</button>
+            <button class="chip" type="button" data-v="ready" aria-pressed="false">Ready to work</button>
+            <button class="chip" type="button" data-v="rolling" aria-pressed="false">Already rolling</button>
+            <button class="chip" type="button" data-v="fried" aria-pressed="false">Fried</button>
+          </div>
+        </fieldset>
+        <fieldset class="q">
+          <legend>What's the work?</legend>
+          <div class="chips" id="qWork">
+            <button class="chip" type="button" data-v="words" aria-pressed="false">Words<small>no vocals</small></button>
+            <button class="chip" type="button" data-v="numbers" aria-pressed="false">Numbers<small>light vocals at most</small></button>
+            <button class="chip" type="button" data-v="routine" aria-pressed="false">Routine<small>anything goes</small></button>
+          </div>
+        </fieldset>
+        <div class="row">
+          <button class="btn solid" id="again" type="button" hidden>Same as last time</button>
+          <button class="btn" id="browse" type="button">Choose a station myself</button>
+          <button class="btn" id="backToNow" type="button" hidden>Keep what's playing</button>
+        </div>
+        <p class="status" id="pickStatus" role="status"></p>
+      </div>
+
+      <div class="panel now" id="now" hidden>
+        <div>
+          <p class="title" id="npTitle">Loading</p>
+          <p class="from" id="npFrom"></p>
+        </div>
+        <div class="row">
+          <button class="btn small" id="another" type="button">Another video</button>
+          <button class="btn small" id="repick" type="button">Pick again</button>
+          <a id="ytLink" href="https://www.youtube.com/" target="_blank" rel="noopener">Open in YouTube</a>
+        </div>
+        <div id="altWrap" hidden>
+          <p class="label">Or switch to</p>
+          <div class="chips" id="alts" style="margin-top:8px"></div>
+        </div>
+        <p class="status" id="npStatus" role="status"></p>
+      </div>
+    </section>
+
+    <section class="deck" aria-label="Timer">
+      <div class="timer">
+        <div class="phase"><strong id="phaseName">Focus</strong><span id="roundText">Round 1 of 4</span></div>
+        <p class="clock" id="clock" aria-live="off"></p>
+        <div class="time">
+          <div class="blocks" id="blocks" role="img" aria-label="Time left">
+            <div class="cells" id="cellsF"></div>
+            <div class="cells brk" id="cellsB"></div>
+          </div>
+          <div class="today">
+            <div class="ledger" id="ledger" aria-hidden="true"></div>
+            <p id="todayText">No sessions finished yet today.</p>
+          </div>
+        </div>
+        <p class="legend" id="legend"></p>
+        <div class="row">
+          <button class="btn solid" id="startBtn" type="button">Start</button>
+          <button class="btn" id="skipBtn" type="button">Skip</button>
+          <button class="btn" id="resetBtn" type="button">Reset</button>
+        </div>
+      </div>
+
+      <div class="panel presets">
+        <div class="chips" id="presetChips"></div>
+        <details>
+          <summary>Timer options</summary>
+          <div class="opts">
+            <label>Custom
+              <input class="field" id="cFocus" type="number" min="1" max="180" value="20" aria-label="Focus minutes">
+              <span>min focus,</span>
+              <input class="field" id="cBreak" type="number" min="1" max="60" value="4" aria-label="Break minutes">
+              <span>min break</span>
+              <button class="btn small" id="cUse" type="button">Use</button>
+            </label>
+            <label>During breaks
+              <select class="field" id="optBreak">
+                <option value="keep">keep the music playing</option>
+                <option value="lower">turn the music down</option>
+                <option value="pause">pause the music</option>
+              </select>
+            </label>
+            <label><input type="checkbox" id="optAuto"> Start the next block automatically</label>
+            <label><input type="checkbox" id="optChime"> Play a chime when a block ends</label>
+            <div class="row">
+              <button class="btn small" id="optNotify" type="button">Turn on desktop notifications</button>
+              <span class="note" id="notifyState"></span>
+            </div>
+          </div>
+        </details>
+      </div>
+
+      <div class="panel">
+        <div class="picks">
+          <div class="pick"><span class="label" id="palLabel">Palette</span><div class="dd" id="ddPalette"></div></div>
+          <div class="pick"><span class="label" id="styLabel">Style</span><div class="dd" id="ddStyle"></div></div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<dialog id="lib" aria-labelledby="libTitle">
+  <div class="lib">
+    <header>
+      <h2 id="libTitle">Library</h2>
+      <button class="btn small" id="checkLib" type="button">Check every station</button>
+      <button class="btn small solid" id="closeLib" type="button">Close</button>
+    </header>
+    <p class="status" id="libStatus" role="status"></p>
+    <ul class="stations" id="stations"></ul>
+
+    <form class="add" id="addForm">
+      <label class="wide">YouTube link or ID
+        <input class="field" id="aLink" required placeholder="youtube.com/channel/UC…, a playlist link, or a video link">
+      </label>
+      <label>Name<input class="field" id="aName" required></label>
+      <label>Sound<input class="field" id="aKind" placeholder="Lo-fi, ambient, rain…"></label>
+      <label>Energy
+        <select class="field" id="aEnergy"><option value="1">Calm</option><option value="2" selected>Steady</option><option value="3">Driving</option></select>
+      </label>
+      <label>Vocals
+        <select class="field" id="aVocals"><option value="0" selected>None</option><option value="1">Some</option><option value="2">Frequent</option></select>
+      </label>
+      <label class="wide">Best for (optional)
+        <input class="field" id="aFits" placeholder="evening, night, rain">
+      </label>
+      <div class="row">
+        <button class="btn solid" id="aSubmit" type="submit">Add station</button>
+        <button class="btn" id="aCancel" type="button" hidden>Cancel edit</button>
+      </div>
+    </form>
+    <p class="note">A channel needs its ID, which starts with UC. On the channel's YouTube page choose Share, then Copy channel ID. Playlist and single-video links work as they are.</p>
+    <p class="note">Best for takes any of: spring, summer, autumn, winter, morning, afternoon, evening, night, clear, gray, rain, snow. Leave it empty for a station that suits any day. Inside a station, videos whose titles name another season still play, just less often.</p>
+
+    <details>
+      <summary>Move the library to another device</summary>
+      <div class="opts">
+        <textarea class="field" id="ioText" aria-label="Library as text" spellcheck="false"></textarea>
+        <div class="row">
+          <button class="btn small" id="ioCopy" type="button">Copy</button>
+          <button class="btn small" id="ioLoad" type="button">Replace library with this text</button>
+          <button class="btn small" id="ioReset" type="button">Restore the original stations</button>
+        </div>
+      </div>
+    </details>
+  </div>
+</dialog>
+
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+
+/* ───────── library ─────────
+   energy 1 calm, 2 steady, 3 driving. vocals 0 none, 1 some, 2 frequent.
+   fits: seasons, times of day and skies the station suits best; empty means any.
+   Only tagged where the channel makes it plain. Seasons are otherwise judged per video, from its title. */
+const STARTER = [
+  { id: 'lofi-girl',        name: 'Lofi Girl',            src: { type: 'channel', id: 'UCSJ4gkVC6NrvII8umztf0Ow' }, kind: 'Lo-fi beats',                  energy: 2, vocals: 0, fits: [] },
+  { id: 'chillhop',         name: 'Chillhop Music',       src: { type: 'channel', id: 'UCOxqgCwgOqC2lMqC5PYz_Dg' }, kind: 'Jazzy instrumental hip hop',   energy: 2, vocals: 0, fits: [] },
+  { id: 'fantastic-music',  name: 'Fantastic Music',      src: { type: 'channel', id: 'UCZyyXrEF2WCZbI653PFNBbA' }, kind: 'Jazzhop and lo-fi mixes',      energy: 2, vocals: 0, fits: [] },
+  { id: 'focus-soundscapes', name: 'Focus Soundscapes',   src: { type: 'channel', id: 'UCKWOEUGWIsVYK9Yz4hVjbCg' }, kind: 'Cyberpunk and space ambience', energy: 2, vocals: 0, fits: [] },
+  { id: 'retrocausal',      name: 'Retrocausal Memories', src: { type: 'channel', id: 'UC1JtuuVpw66uHXDVhZpQ1qA' }, kind: 'Space and sci-fi ambient',     energy: 1, vocals: 0, fits: [] },
+  { id: 'ambient-outpost',  name: 'Ambient Outpost',      src: { type: 'channel', id: 'UCdCdZg90LAvxLWpl-yEj0Og' }, kind: 'Dark ambient',                 energy: 1, vocals: 0, fits: ['evening', 'night'] },
+  { id: 'futurescapes',     name: 'Futurescapes',         src: { type: 'channel', id: 'UCDyghjHud0sexPHxs5qPXUQ' }, kind: 'Sci-fi ambience',              energy: 1, vocals: 0, fits: [] },
+  { id: 'futurescapes-sleep', name: 'Futurescapes Sleep', src: { type: 'channel', id: 'UCmdMfsouwVQmlZBEqadivdw' }, kind: 'Slow sci-fi ambient',          energy: 1, vocals: 0, fits: ['night'] },
+  { id: 'silent-field',     name: 'Silent Field',         src: { type: 'channel', id: 'UC4CU00bEVdvKGl20L9VCcnw' }, kind: 'Nature and weather ambient',   energy: 1, vocals: 0, fits: [] },
+  { id: 'athena-iv',        name: 'Athena IV',            src: { type: 'channel', id: 'UCfzTGKHeCCOo00T_U_V1x7g' }, kind: 'Mythic and sci-fi ambient',    energy: 1, vocals: 0, fits: [] },
+  { id: 'chronoscapes',     name: 'Chronoscapes',         src: { type: 'channel', id: 'UCWG0cJjt6j6Xbe1qQjtpa1A' }, kind: 'Post-apocalyptic ambient',     energy: 1, vocals: 0, fits: [] },
+  { id: 'anjunachill',      name: 'Anjunachill',          src: { type: 'channel', id: 'UCV8pMjLasWLdoANBOICgahw' }, kind: 'Downtempo and chillout',       energy: 1, vocals: 1, fits: [] },
+  { id: 'anjunadeep',       name: 'Anjunadeep',           src: { type: 'channel', id: 'UCbDgBFAketcO26wz-pR6OKA' }, kind: 'Deep and melodic house',       energy: 2, vocals: 1, fits: [] },
+  { id: 'flavour-trip',     name: 'Flavour Trip',         src: { type: 'channel', id: 'UCoq2qlWgvvKJzW_hBkLIE8w' }, kind: 'House DJ sets',                energy: 3, vocals: 1, fits: [] }
+];
+const PRESETS = [
+  { f: 25, b: 5,  name: 'Classic' },
+  { f: 50, b: 10, name: 'Long haul' },
+  { f: 15, b: 3,  name: 'Short' },
+  { f: 10, b: 2,  name: 'Sprint' },
+  { f: 5,  b: 1,  name: 'Just start' },
+  { f: 2,  b: 1,  name: 'Foot in the door' }
+];
+const ROUNDS = 4;
+const ENERGY = { 1: 'Calm', 2: 'Steady', 3: 'Driving' };
+const VOCALS = { 0: 'no vocals', 1: 'some vocals', 2: 'frequent vocals' };
+
+/* ───────── saved state (this browser only) ───────── */
+const KEY = 'undertone.v1';
+const state = { library: STARTER.map(s => ({ ...s })), log: {}, last: null, lists: {}, titles: {}, sky: null, liveSky: true, days: {},
+  opts: { preset: { f: 25, b: 5 }, onBreak: 'keep', auto: true, chime: true, scheme: 'poster', palette: 'video', fixed: 'inferno', solo: false } };
+try {
+  const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
+  if (saved) {
+    if (Array.isArray(saved.library) && saved.library.length) state.library = saved.library;
+    if (saved.log) state.log = saved.log;
+    if (saved.last) state.last = saved.last;
+    if (saved.lists) state.lists = saved.lists;
+    if (saved.titles) state.titles = saved.titles;
+    if (saved.sky) state.sky = saved.sky;
+    if (saved.days) state.days = saved.days;
+    if (saved.liveSky === false) state.liveSky = false;
+    if (saved.opts) Object.assign(state.opts, saved.opts);
+  }
+} catch (e) {}
+const save = () => { try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) {} };
+
+/* ───────── color ───────── */
+const norm = h => ((h % 360) + 360) % 360;
+const hsl = (h, s, l) => `hsl(${Math.round(norm(h))} ${Math.round(s)}% ${Math.round(l)}%)`;
+function hslToRgb(h, s, l) {
+  h = norm(h); s /= 100; l /= 100;
+  const k = n => (n + h / 30) % 12, a = s * Math.min(l, 1 - l);
+  const f = n => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  return [f(0), f(8), f(4)];
+}
+function rgbToHsl(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), l = (mx + mn) / 2, d = mx - mn;
+  if (!d) return [0, 0, l];
+  const s = d / (1 - Math.abs(2 * l - 1));
+  let h = mx === r ? ((g - b) / d) % 6 : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+  return [norm(h * 60), s, l];
+}
+const lum = ([r, g, b]) => { const c = v => v <= .03928 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4; return .2126 * c(r) + .7152 * c(g) + .0722 * c(b); };
+const ratio = (x, y) => (Math.max(x, y) + .05) / (Math.min(x, y) + .05);
+const hueGap = (a, b) => { const d = Math.abs(norm(a) - norm(b)); return Math.min(d, 360 - d); };
+
+/* a solid block of color plus the text color that reads on it (4.5:1 or better) */
+function block(h, s, l) {
+  const dark = [h, 45, 9], light = [h, 30, 97];
+  const ld = lum(hslToRgb(...dark)), ll = lum(hslToRgb(...light));
+  let useDark = true;
+  for (let i = 0; i < 14; i++) {
+    const L = lum(hslToRgb(h, s, l)), cd = ratio(L, ld), cl = ratio(L, ll);
+    useDark = cd >= cl;
+    if (Math.max(cd, cl) >= 4.6) break;
+    l += useDark ? 3 : -3;
+  }
+  return { bg: hsl(h, s, l), ink: useDark ? hsl(...dark) : hsl(...light) };
+}
+
+function readPalette(img) {
+  const w = 64, h = 36, cv = document.createElement('canvas');
+  cv.width = w; cv.height = h;
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(img, 0, 0, w, h);
+  const px = ctx.getImageData(0, 0, w, h).data;   // throws if the image host forbids reading
+  const bins = Array.from({ length: 24 }, () => ({ w: 0, x: 0, y: 0, s: 0, l: 0 }));
+  let total = 0;
+  for (let i = 0; i < px.length; i += 4) {
+    const [hh, s, l] = rgbToHsl(px[i], px[i + 1], px[i + 2]);
+    if (l < .08 || l > .95) continue;
+    const wt = s * (1 - Math.abs(2 * l - 1));      // chroma: vivid pixels count more
+    if (wt < .06) continue;
+    const b = bins[Math.floor(hh / 15) % 24], r = hh * Math.PI / 180;
+    b.w += wt; b.x += Math.cos(r) * wt; b.y += Math.sin(r) * wt; b.s += s * wt; b.l += l * wt; total += wt;
+  }
+  if (total / (w * h) < .025) return null;          // near-greyscale thumbnail
+  const ranked = bins.filter(b => b.w > 0).map(b => ({
+    h: norm(Math.atan2(b.y, b.x) * 180 / Math.PI), s: b.s / b.w * 100, l: b.l / b.w * 100, w: b.w
+  })).sort((p, q) => q.w - p.w);
+  const p1 = ranked[0];
+  const p2 = ranked.find(b => hueGap(b.h, p1.h) >= 45 && b.w >= p1.w * .07);
+  const p3 = p2 && ranked.find(b => hueGap(b.h, p1.h) >= 30 && hueGap(b.h, p2.h) >= 30 && b.w >= p1.w * .04);
+  const h2 = p2 ? p2.h : p1.h + 38;
+  const h3 = p3 ? p3.h : (p2 ? p1.h + (hueGap(p1.h + 170, h2) > 40 ? 170 : 205) : p1.h + 180);
+  return { h: [p1.h, h2, h3], sw: ranked.slice(0, 5).map(b => hsl(b.h, Math.max(b.s, 55), Math.min(Math.max(b.l, 35), 68))) };
+}
+function hashPalette(key) {
+  let n = 7; for (const ch of String(key)) n = (n * 31 + ch.charCodeAt(0)) >>> 0;
+  const h = n % 360;
+  return { h: [h, h + 140, h + 215], sw: null };
+}
+/* a text color of hue h that reads (4.6:1) on a background of the given luminance */
+function readable(h, s, l, bgLum) {
+  const step = bgLum > .3 ? -2 : 2;
+  for (let i = 0; i < 40 && ratio(lum(hslToRgb(h, s, l)), bgLum) < 4.6 && l > 4 && l < 96; i++) l += step;
+  return [h, s, l];
+}
+/* The video supplies three hues. A scheme decides what is done with them. */
+let SAT = 1;                                                    // how vivid the current palette is, 0 to 1
+const sv = v => Math.round(v * SAT);
+const SCHEMES = {
+  poster:   { name: 'Poster',   make: (h1, h2, h3) => ({ bg: [h1, sv(58), 11], hi: [h1, sv(48), 18], line: [h1, sv(40), 30], ink: [h1, sv(45), 96], soft: [h1, sv(30), 76], c: block(h1, sv(88), 64), a: block(h2, sv(92), 60), b: block(h3, sv(86), 63), bd: .34 }) },
+  midnight: { name: 'Midnight', make: (h1, h2, h3) => {
+    const aBg = [h2, sv(45), 8];
+    return { bg: [h1, sv(35), 5], hi: [h1, sv(30), 10], line: [h1, sv(30), 25], ink: [h1, sv(35), 94], soft: [h1, sv(22), 72], c: block(h1, sv(95), 62), b: block(h3, sv(95), 62), bd: .16,
+      a: { bg: hsl(...aBg), ink: hsl(...readable(h2, sv(96), 66, lum(hslToRgb(...aBg)))) }, edge: true };
+  } },
+  daylight: { name: 'Daylight', make: (h1, h2, h3) => ({ bg: [h1, sv(60), 95], hi: [h1, sv(62), 88], line: [h1, sv(38), 68], ink: [h1, sv(55), 11], soft: [h1, sv(35), 27], c: block(h1, sv(82), 48), a: block(h2, sv(90), 54), b: block(h3, sv(86), 56), bd: .3, light: true }) },
+  dusk:     { name: 'Dusk',     make: (h1, h2, h3) => ({ bg: [h1, sv(26), 15], hi: [h1, sv(22), 22], line: [h1, sv(18), 36], ink: [h1, sv(25), 93], soft: [h1, sv(16), 76], c: block(h1, sv(42), 62), a: block(h2, sv(46), 58), b: block(h3, sv(42), 62), bd: .2 }) },
+  mono:     { name: 'One hue',  make: (h1) => ({ bg: [h1, sv(60), 9], hi: [h1, sv(52), 16], line: [h1, sv(42), 28], ink: [h1, sv(45), 96], soft: [h1, sv(30), 76], c: block(h1, sv(85), 66), a: block(h1, sv(92), 56), b: block(h1, sv(70), 80), bd: .3 }) }
+};
+/* Fixed palettes, for when nothing is playing here: three dye-bath colors each,
+   base first, then the timer block, then the highlights. */
+const PALETTES = {
+  inferno:   { name: 'Inferno',    h: [356, 24, 48] },
+  citrus:    { name: 'Citrus',     h: [78, 50, 24] },
+  sunset:    { name: 'Sunset',     h: [282, 338, 28] },
+  tropical:  { name: 'Tropical',   h: [168, 334, 38] },
+  bubblegum: { name: 'Bubblegum',  h: [318, 196, 52] },
+  grape:     { name: 'Grape Soda', h: [268, 304, 188] },
+  deepsea:   { name: 'Deep Sea',   h: [228, 198, 266] },
+  lagoon:    { name: 'Lagoon',     h: [200, 172, 48] },
+  peacock:   { name: 'Peacock',    h: [182, 224, 278] },
+  aurora:    { name: 'Aurora',     h: [252, 150, 186] },
+  moss:      { name: 'Moss',       h: [140, 92, 36], sat: .82 },
+  rainy:     { name: 'Rainy Day',  h: [212, 194, 256], sat: .55 }
+};
+let curPalette = null, curLabel = '';
+const solo = () => !!state.opts.solo;
+let videoPal = { p: { h: [192, 44, 342], sw: null }, label: 'Starting colors' };
+/* colors read from a video are kept even while a fixed palette is showing, so switching back is instant */
+function applyPalette(p, label) { videoPal = { p, label }; repaint(); }
+function repaint() {
+  const fixed = solo() || state.opts.palette !== 'video';
+  const f = PALETTES[state.opts.fixed] || PALETTES.inferno;
+  document.documentElement.classList.toggle('fixed', fixed);
+  if (fixed) paint({ h: f.h, sat: f.sat, sw: null }, f.name); else paint(videoPal.p, videoPal.label);
+  drawPalettes();
+}
+function paint(p, label) {
+  curPalette = p; curLabel = label; SAT = p.sat || 1;
+  const [h1, h2, h3] = p.h, r = document.documentElement.style;
+  const t = (SCHEMES[state.opts.scheme] || SCHEMES.poster).make(h1, h2, h3);
+  const bg = hsl(...t.bg), hi = hsl(...t.hi);
+  r.setProperty('--bg', bg);
+  r.setProperty('--bg-hi', hi);
+  r.setProperty('--line', hsl(...t.line));
+  r.setProperty('--ink', hsl(...t.ink));
+  r.setProperty('--ink-soft', hsl(...t.soft));
+  r.setProperty('--c', t.c.bg); r.setProperty('--c-ink', t.c.ink);
+  r.setProperty('--c-text', hsl(...readable(h1, sv(88), t.light ? 40 : 64, lum(hslToRgb(...t.hi)))));   // the accent used as text on panels
+  r.setProperty('--a', t.a.bg); r.setProperty('--a-ink', t.a.ink);
+  r.setProperty('--a-edge', t.edge ? t.a.ink : 'transparent');
+  r.setProperty('--b', t.b.bg); r.setProperty('--b-ink', t.b.ink);
+  r.setProperty('--bd', t.bd);
+  r.colorScheme = t.light ? 'light' : 'dark';
+  const [R, G, B] = hslToRgb(...t.bg).map(v => Math.round(v * 255));
+  $('themeColor').setAttribute('content', `rgb(${R},${G},${B})`);
+  const sw = p.sw && p.sw.length ? p.sw.slice() : [t.c.bg, t.a.bg, t.b.bg, hi, bg];
+  while (sw.length < 5) sw.push([t.a.bg, t.b.bg, t.c.bg][sw.length % 3]);
+  [...$('swList').children].forEach((li, i) => { li.style.backgroundColor = sw[i]; });
+  $('swLabel').textContent = label;
+  drawSchemes();
+}
+/* A drop-down that can show a color preview beside each choice, which a plain select can't.
+   Arrow keys move, Enter or Space chooses, Escape closes, typing a letter jumps to a name. */
+function dropdown(rootId, labelId, onPick) {
+  const root = $(rootId), el = (tag, cls) => { const n = document.createElement(tag); if (cls) n.className = cls; return n; };
+  const btn = el('button', 'dd-btn'), name = el('span'), caret = el('span', 'caret'), list = el('ul', 'dd-list');
+  btn.type = 'button'; btn.id = rootId + 'Btn'; name.id = rootId + 'Name';
+  btn.setAttribute('aria-haspopup', 'listbox'); btn.setAttribute('aria-expanded', 'false'); btn.setAttribute('aria-labelledby', labelId + ' ' + name.id);
+  caret.setAttribute('aria-hidden', 'true');
+  btn.append(el('span'), name, caret);
+  list.setAttribute('role', 'listbox'); list.setAttribute('aria-labelledby', labelId); list.tabIndex = -1; list.hidden = true;
+  root.append(btn, list);
+  let items = [], cur = null, act = 0, wasOpen = false, typed = '', typedAt = 0;
+  const mark = scroll => {
+    [...list.children].forEach((li, i) => li.classList.toggle('act', i === act));
+    const li = list.children[act];
+    if (li) { list.setAttribute('aria-activedescendant', li.id); if (scroll) li.scrollIntoView({ block: 'nearest' }); }
+  };
+  const open = () => {
+    list.hidden = false; btn.setAttribute('aria-expanded', 'true');
+    act = Math.max(0, items.findIndex(it => it.key === cur));
+    root.classList.remove('up');
+    const r = btn.getBoundingClientRect(), h = list.offsetHeight;
+    root.classList.toggle('up', r.bottom + h + 8 > innerHeight && r.top > h + 8);     // open upward when there's no room below
+    mark(true); list.focus();
+  };
+  const close = refocus => { if (list.hidden) return; list.hidden = true; btn.setAttribute('aria-expanded', 'false'); if (refocus) btn.focus(); };
+  const choose = i => { const it = items[i]; if (!it) return; close(true); onPick(it.key); };
+  btn.addEventListener('pointerdown', () => { wasOpen = !list.hidden; });
+  btn.addEventListener('click', () => { if (wasOpen) { wasOpen = false; close(true); } else open(); });
+  btn.addEventListener('keydown', e => { if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { e.preventDefault(); wasOpen = false; open(); } });
+  list.addEventListener('focusout', e => { if (e.relatedTarget !== btn) close(false); else setTimeout(() => close(false), 0); });
+  list.addEventListener('click', e => { const li = e.target.closest('li'); if (li) choose([...list.children].indexOf(li)); });
+  list.addEventListener('pointermove', e => { const li = e.target.closest('li'); if (li) { act = [...list.children].indexOf(li); mark(false); } });
+  list.addEventListener('keydown', e => {
+    const n = items.length, k = e.key;
+    if (k === 'ArrowDown') act = Math.min(n - 1, act + 1);
+    else if (k === 'ArrowUp') act = Math.max(0, act - 1);
+    else if (k === 'Home') act = 0;
+    else if (k === 'End') act = n - 1;
+    else if (k === 'Enter' || k === ' ') { e.preventDefault(); return choose(act); }
+    else if (k === 'Escape') { e.preventDefault(); return close(true); }
+    else if (k === 'Tab') return close(false);
+    else if (k.length === 1) {
+      typed = Date.now() - typedAt < 700 ? typed + k.toLowerCase() : k.toLowerCase(); typedAt = Date.now();
+      const hit = items.findIndex(it => it.name.toLowerCase().startsWith(typed));
+      if (hit >= 0) act = hit;
+    } else return;
+    e.preventDefault(); mark(true);
+  });
+  return {
+    set(next, key) {
+      items = next; cur = key; list.textContent = '';
+      items.forEach((it, i) => {
+        const li = el('li'); li.setAttribute('role', 'option'); li.id = rootId + 'Opt' + i; li.dataset.v = it.key;
+        li.setAttribute('aria-selected', String(it.key === key));
+        li.append(it.preview(), document.createTextNode(it.name)); list.appendChild(li);
+      });
+      const now = items.find(it => it.key === key) || items[0];
+      btn.firstChild.replaceWith(now.preview()); name.textContent = now.name;
+      if (!list.hidden) { act = Math.max(0, items.findIndex(it => it.key === key)); mark(false); }
+    }
+  };
+}
+let ddStyle = null, ddPalette = null;
+function drawSchemes() {
+  ddStyle = ddStyle || dropdown('ddStyle', 'styLabel', key => { state.opts.scheme = key; save(); repaint(); });
+  const [h1, h2, h3] = curPalette.h;
+  SAT = curPalette.sat || 1;
+  const items = Object.entries(SCHEMES).map(([key, sc]) => {
+    const t = sc.make(h1, h2, h3), cols = [hsl(...t.bg), t.edge ? t.a.ink : t.a.bg, t.b.bg];
+    return { key, name: sc.name, preview: () => {
+      const d = document.createElement('span'); d.className = 'prev dots';
+      cols.forEach(c => { const i = document.createElement('i'); i.style.backgroundColor = c; d.appendChild(i); });
+      return d;
+    } };
+  });
+  ddStyle.set(items, SCHEMES[state.opts.scheme] ? state.opts.scheme : 'poster');
+}
+function drawPalettes() {
+  ddPalette = ddPalette || dropdown('ddPalette', 'palLabel', key => {
+    if (key !== 'video') state.opts.fixed = key;
+    if (!solo()) state.opts.palette = key;                       // a choice made in timer-only mode doesn't replace video colors elsewhere
+    save(); repaint();
+  });
+  const grad = css => () => { const g = document.createElement('span'); g.className = 'prev grad'; g.style.background = css; return g; };
+  const items = Object.entries(PALETTES).map(([key, f]) => {
+    const k = f.sat || 1, c = (h, l) => hsl(h, 88 * k, l);
+    return { key, name: f.name, preview: grad(`linear-gradient(90deg, ${c(f.h[0], 42)}, ${c(f.h[1], 56)}, ${c(f.h[2], 60)})`) };
+  });
+  if (!solo()) items.unshift({ key: 'video', name: 'From the video', preview: grad('conic-gradient(from 90deg, #f43, #fc3, #3c8, #38f, #c4f, #f43)') });
+  ddPalette.set(items, solo() || state.opts.palette !== 'video' ? (PALETTES[state.opts.fixed] ? state.opts.fixed : 'inferno') : 'video');
+}
+function themeFromVideo(vid, station) {
+  const url = `https://i.ytimg.com/vi/${vid}/mqdefault.jpg`;
+  const bd = $('backdrop');
+  const backdrop = on => { bd.classList.remove('on'); if (on) setTimeout(() => { bd.style.backgroundImage = `url("${url}")`; bd.classList.add('on'); }, 350); };
+  const fallback = () => applyPalette(hashPalette(station.id), 'Station colors');
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  img.onload = () => {
+    if (vid !== lastVid) return;                                              // a newer video has started since
+    if (img.naturalWidth < 200) { backdrop(false); return fallback(); }      // YouTube's grey "no thumbnail" image
+    backdrop(true);
+    try { const p = readPalette(img); if (p) applyPalette(p, 'Colors from this video'); else fallback(); }
+    catch (e) { fallback(); }
+  };
+  img.onerror = () => { if (vid !== lastVid) return; backdrop(true); fallback(); };
+  img.src = url;
+}
+applyPalette({ h: [192, 44, 342], sw: null }, 'Starting colors');
+
+/* ───────── what it's like outside ─────────
+   Season and time of day come from the clock. The sky comes from live Puget Sound
+   weather when that can be reached, otherwise from what's usual for the season. */
+const SEASONS = ['spring', 'summer', 'autumn', 'winter'], TIMES = ['morning', 'afternoon', 'evening', 'night'], SKIES = ['clear', 'grey', 'rain', 'snow'];
+const FIT_WORDS = [...SEASONS, ...TIMES, ...SKIES];
+const SKY_ADJ = { clear: 'clear', grey: 'gray', rain: 'rainy', snow: 'snowy' };
+const SHOW = w => w === 'grey' ? 'gray' : w;
+const USUAL_SKY = { spring: 'grey', summer: 'clear', autumn: 'rain', winter: 'rain' };
+const ctx = { season: 'autumn', time: 'afternoon', sky: 'rain' }, manual = {};
+function skyNow() { return state.liveSky && state.sky && Date.now() - state.sky.at < 2 * 36e5 ? state.sky.v : null; }
+function refreshCtx() {
+  const d = new Date(), m = d.getMonth(), h = d.getHours();
+  const season = m < 2 || m === 11 ? 'winter' : m < 5 ? 'spring' : m < 8 ? 'summer' : 'autumn';
+  const time = h < 5 ? 'night' : h < 11 ? 'morning' : h < 17 ? 'afternoon' : h < 21 ? 'evening' : 'night';
+  const live = skyNow();
+  Object.assign(ctx, { season, time, sky: live || USUAL_SKY[season] }, manual);
+  const an = /^[aeiou]/.test(SKY_ADJ[ctx.sky]) ? 'an' : 'a';
+  const why = Object.keys(manual).length ? 'your setting' : live ? 'live Puget Sound weather' : 'the usual sky for the season';
+  $('ctxLine').textContent = `Picking for ${an} ${SKY_ADJ[ctx.sky]} ${ctx.season} ${ctx.time} (${why}).`;
+  [['cSeason', SEASONS, 'season'], ['cTime', TIMES, 'time'], ['cSky', SKIES, 'sky']].forEach(([box, names, key]) => {
+    const el = $(box);
+    if (!el.children.length) names.forEach(n => {
+      const b = document.createElement('button'); b.className = 'chip'; b.type = 'button'; b.dataset.v = n;
+      b.textContent = SHOW(n)[0].toUpperCase() + SHOW(n).slice(1);
+      b.addEventListener('click', () => { manual[key] = n; refreshCtx(); });
+      el.appendChild(b);
+    });
+    [...el.children].forEach(c => c.setAttribute('aria-pressed', String(c.dataset.v === ctx[key])));
+  });
+  $('ctxAuto').hidden = !Object.keys(manual).length;
+}
+async function fetchSky() {
+  if (solo() || !state.liveSky || (state.sky && Date.now() - state.sky.at < 30 * 6e4)) return;
+  try {
+    const c = new AbortController(), t = setTimeout(() => c.abort(), 5000);
+    const r = await fetch('https://api.open-meteo.com/v1/forecast?latitude=47.6&longitude=-122.33&current=weather_code', { signal: c.signal });
+    clearTimeout(t);
+    const code = (await r.json()).current.weather_code;
+    const v = code <= 2 ? 'clear' : code <= 48 ? 'grey' : (code >= 71 && code <= 77) || code === 85 || code === 86 ? 'snow' : 'rain';
+    state.sky = { v, at: Date.now() }; save(); refreshCtx();
+  } catch (e) {}
+}
+$('ctxToggle').addEventListener('click', () => {
+  const open = $('ctxEdit').hidden; $('ctxEdit').hidden = !open;
+  $('ctxToggle').setAttribute('aria-expanded', String(open)); $('ctxToggle').textContent = open ? 'Done' : 'Change';
+});
+$('ctxAuto').addEventListener('click', () => { Object.keys(manual).forEach(k => delete manual[k]); refreshCtx(); });
+$('optSky').checked = state.liveSky;
+$('optSky').addEventListener('change', e => { state.liveSky = e.target.checked; save(); refreshCtx(); fetchSky(); });
+
+/* how well a station's "best for" tags suit right now. Untagged dimensions cost nothing;
+   the wrong season counts against it without ruling it out, the wrong hour or sky only a little. */
+const skyMatch = (tags, now) => tags.includes(now) || (tags.includes('grey') && (now === 'rain' || now === 'snow'));
+function ctxFit(st) {
+  const f = st.fits || []; let s = 0;
+  const dim = (names, ok, hit, miss) => { const tagged = f.filter(t => names.includes(t)); if (tagged.length) s += ok(tagged) ? hit : miss; };
+  dim(SEASONS, t => t.includes(ctx.season), 1.5, -1.5);
+  dim(TIMES, t => t.includes(ctx.time), 1, -.5);
+  dim(SKIES, t => skyMatch(t, ctx.sky), 1, -.5);
+  return s;
+}
+/* the same idea for one video, read from its title: another season's name makes it less likely.
+   Whole words only, so Springfield, Wintermute, Snowpiercer and Cloud City don't count. */
+const WORDS = {
+  spring: /\b(spring|springtime|blossoms?|bloom|blooming|sakura|april)\b/i,
+  summer: /\b(summer|summers|summertime|summery|beach|beaches|beachside|tropical|poolside|heatwave|vacation|july)\b/i,
+  autumn: /\b(autumn|autumnal|september|october|november|halloween|pumpkins?)\b|\bfall\b(?! asleep| into| in )/i,
+  winter: /\b(winter|winters|wintertime|wintry|snow|snowy|snowfall|snowstorm|snowing|christmas|xmas|frost|frosty|blizzard|december|january|february)\b/i,
+  morning: /\b(morning|mornings|sunrise|daybreak|breakfast)\b/i,
+  afternoon: /\b(afternoon|afternoons|midday|daytime)\b/i,
+  evening: /\b(evening|evenings|sunset|dusk|twilight|golden hour)\b/i,
+  night: /\b(night|nights|nighttime|midnight|sleep|sleeping|sleepy|asleep|insomnia|after dark)\b/i,
+  clear: /\b(sunny|sunshine|sunlit|clear sk(y|ies)|blue sk(y|ies))\b/i,
+  grey: /\b(fog|foggy|mist|misty|overcast|cloudy|gloomy)\b/i,
+  rain: /\b(rain|rains|rainy|raining|rainfall|rainstorm|storm|storms|stormy|thunderstorm|thunder|drizzle|downpour)\b/i,
+  snow: /\b(snow|snowy|snowfall|snowstorm|snowing|blizzard)\b/i
+};
+function titleFit(title) {
+  if (!title) return 0;
+  let s = 0;
+  const dim = (names, ok, hit, miss) => { const found = names.filter(n => WORDS[n].test(title)); if (found.length) s += ok(found) ? hit : miss; };
+  dim(SEASONS, n => n.includes(ctx.season), 2, -4);
+  dim(TIMES, n => n.includes(ctx.time), 1, -1);
+  dim(SKIES, n => skyMatch(n, ctx.sky), 1, -.5);
+  return s;
+}
+
+/* ───────── picking ───────── */
+const answers = { head: null, work: null };
+const TARGET = { stuck: 3, ready: 2, rolling: 2, fried: 1 };
+const DAY = 864e5;
+function rank(head, work, exceptId) {
+  refreshCtx();
+  const maxVocals = work === 'words' ? 0 : work === 'numbers' ? 1 : 2;
+  let pool = state.library.filter(s => s.vocals <= maxVocals && s.id !== exceptId);
+  if (!pool.length) pool = state.library.filter(s => s.id !== exceptId);
+  const now = Date.now();
+  return pool.map(s => {
+    const last = state.log[s.id] && state.log[s.id].last;
+    const stale = last ? Math.min((now - last) / DAY, 14) / 14 : 1;      // 0 just played … 1 two weeks or never
+    const fit = -Math.abs(s.energy - TARGET[head]) * 2;
+    return { s, score: fit + stale * 3 + ctxFit(s) + Math.random() * .4 };
+  }).sort((p, q) => q.score - p.score).map(x => x.s);
+}
+function pick(head, work) {
+  const order = rank(head, work);
+  if (!order.length) { setStatus('pickStatus', 'The library is empty. Add a station first.', true); return; }
+  state.last = { head, work }; save();
+  if (head === 'stuck' && !timer.running && timer.remaining === timer.total) usePreset(5, 1);
+  playStation(order[0], order.slice(1, 4));
+}
+function wireQuestion(boxId, key) {
+  $(boxId).addEventListener('click', e => {
+    const chip = e.target.closest('.chip'); if (!chip) return;
+    answers[key] = chip.dataset.v;
+    [...$(boxId).children].forEach(c => c.setAttribute('aria-pressed', String(c === chip)));
+    if (answers.head && answers.work) pick(answers.head, answers.work);
+  });
+}
+wireQuestion('qHead', 'head'); wireQuestion('qWork', 'work');
+function showPicker(canReturn) {
+  answers.head = answers.work = null;
+  document.querySelectorAll('#qHead .chip, #qWork .chip').forEach(c => c.setAttribute('aria-pressed', 'false'));
+  refreshCtx(); fetchSky();
+  $('again').hidden = !state.last;
+  $('backToNow').hidden = !canReturn;
+  $('picker').hidden = false; $('now').hidden = true;
+  setStatus('pickStatus', '');
+}
+$('again').addEventListener('click', () => state.last && pick(state.last.head, state.last.work));
+$('backToNow').addEventListener('click', () => { $('picker').hidden = true; $('now').hidden = false; });
+$('repick').addEventListener('click', () => showPicker(true));
+function setStatus(id, text, warn) { const el = $(id); el.textContent = text || ''; el.classList.toggle('warn', !!(warn && text)); }
+
+/* ───────── YouTube player ─────────
+   A fresh player is built whenever the source changes. Reusing one player and
+   swapping playlists leaves the previous playlist readable for a moment, which
+   makes it impossible to tell whose videos you are choosing from. */
+let player = null, ready = false, apiState = 'idle', apiWaiter = null, token = 0, waitTimer = 0;
+let current = null, lists = [], listId = null, ids = [], lastVid = null, loggedVid = null, errors = 0, bad = new Set();
+let opening = null, hintTimer = 0, skips = 0;
+let checking = null;
+
+function whenApi(fn) {
+  if (apiState === 'ready') return fn();
+  apiWaiter = fn;
+  if (apiState !== 'idle') return;
+  apiState = 'loading';
+  const s = document.createElement('script');
+  s.src = 'https://www.youtube.com/iframe_api';
+  s.onerror = () => { apiState = 'idle'; setStatus('npStatus', "YouTube didn't load. Check that this network allows youtube.com, then pick again.", true); };
+  document.head.appendChild(s);
+}
+window.onYouTubeIframeAPIReady = () => { apiState = 'ready'; const f = apiWaiter; apiWaiter = null; if (f) f(); };
+
+function teardown() {
+  token++; ready = false; clearInterval(waitTimer);
+  try { if (player) player.destroy(); } catch (e) {}
+  player = null;
+  const box = document.querySelector('#frame .ratio'); box.textContent = '';
+  const slot = document.createElement('div'); slot.id = 'player'; box.appendChild(slot);
+}
+function build(opts, onReady) {
+  teardown();
+  const my = token;
+  $('frame').hidden = false;
+  whenApi(() => {
+    if (my !== token) return;
+    const cfg = {
+      width: '100%', height: '100%',
+      playerVars: Object.assign({ playsinline: 1, rel: 0, origin: location.origin }, opts.playerVars),
+      events: {
+        onReady: () => { if (my === token) { ready = true; onReady(); } },
+        onStateChange: e => { if (my === token) onStateChange(e); },
+        onError: e => { if (my === token) onError(e); }
+      }
+    };
+    if (opts.videoId) cfg.videoId = opts.videoId;               // the player rejects an empty videoId outright
+    player = new YT.Player('player', cfg);
+  });
+}
+const sourceLists = src => src.type === 'channel'
+  ? ['UULF' + src.id.slice(2), 'UU' + src.id.slice(2)]      // full-length uploads first, then every upload
+  : src.type === 'playlist' ? [src.id] : [];
+
+/* open the next candidate list; done(videoIds) or done(null) when none of them load */
+function openList(done) {
+  if (!lists.length) { opening = null; return done(null); }
+  listId = lists.shift(); opening = done;
+  build({ playerVars: { listType: 'playlist', list: listId } }, () => {
+    const my = token, t0 = Date.now();
+    waitTimer = setInterval(() => {
+      if (my !== token) return clearInterval(waitTimer);
+      let got = []; try { got = player.getPlaylist() || []; } catch (e) {}
+      if (got.length) { clearInterval(waitTimer); opening = null; done(got.slice()); }
+      else if (Date.now() - t0 > 4500) { clearInterval(waitTimer); openList(done); }
+    }, 200);
+  });
+}
+function playStation(st, alternates) {
+  if (solo()) setSolo(false);
+  current = st; lastVid = loggedVid = null; errors = 0; skips = 0; ids = []; bad = new Set(); clearTimeout(hintTimer);
+  $('picker').hidden = true; $('now').hidden = false;
+  $('npTitle').textContent = 'Loading ' + st.name;
+  $('npFrom').textContent = st.kind || '';
+  $('another').hidden = st.src.type === 'video';
+  $('ytLink').href = linkFor(st, null);
+  setStatus('npStatus', location.protocol === 'file:' ? "This page is open as a file on disk, and YouTube only plays on pages opened from a web address." : '', true);
+  if (alternates) renderAlts(alternates);
+  if (st.src.type === 'video') {
+    build({ videoId: st.src.id, playerVars: { autoplay: 1 } }, () => { try { player.playVideo(); } catch (e) {} nudge(); });
+    return;
+  }
+  const known = state.lists[st.id];
+  lists = known && sourceLists(st.src).includes(known) ? [known] : sourceLists(st.src);
+  openList(got => {
+    if (current !== st) return;
+    if (!got) { delete state.lists[st.id]; return setStatus('npStatus', `${st.name} wouldn't load. Check its link in Library, or switch stations.`, true); }
+    ids = got; state.lists[st.id] = listId; save();
+    playNext();
+  });
+}
+/* some browsers, iPhone Safari among them, won't start sound until the video itself is tapped */
+function nudge() {
+  clearTimeout(hintTimer);
+  hintTimer = setTimeout(() => {
+    let st = -1; try { st = player.getPlayerState(); } catch (e) {}
+    if (current && st !== YT.PlayerState.PLAYING && st !== YT.PlayerState.BUFFERING && !$('npStatus').textContent) setStatus('npStatus', 'Press play on the video to start the music.');
+  }, 4000);
+}
+/* a video's title, from YouTube's public embed lookup; null means it can't be played off YouTube */
+async function fetchTitle(vid) {
+  if (vid in state.titles) return state.titles[vid];
+  try {
+    const c = new AbortController(), t = setTimeout(() => c.abort(), 2500);
+    const r = await fetch('https://www.youtube.com/oembed?format=json&url=' + encodeURIComponent('https://www.youtube.com/watch?v=' + vid), { signal: c.signal });
+    clearTimeout(t);
+    if (r.status === 401 || r.status === 403 || r.status === 404) return (state.titles[vid] = null);
+    if (!r.ok) return '';
+    return (state.titles[vid] = String((await r.json()).title || ''));
+  } catch (e) { return ''; }
+}
+function candidates() {
+  const seen = (state.log[current.id] && state.log[current.id].vids) || {};
+  const ok = ids.map((v, i) => i).filter(i => ids[i] !== lastVid && !bad.has(ids[i]));
+  const fresh = ok.filter(i => !seen[ids[i]]);
+  for (let i = fresh.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [fresh[i], fresh[j]] = [fresh[j], fresh[i]]; }
+  const heard = ok.filter(i => seen[ids[i]]).sort((p, q) => seen[ids[p]] - seen[ids[q]]);   // longest ago first
+  return fresh.map(i => ({ i, fresh: true })).concat(heard.map(i => ({ i, fresh: false })));
+}
+/* how likely a video is to be chosen next to its neighbours: other seasons still play, just not often */
+function titleWeight(title) {
+  const f = titleFit(title);
+  return f <= -3 ? .25 : f >= 1.5 ? 2.5 : f > 0 ? 1.4 : f < 0 ? .7 : 1;
+}
+/* Unheard videos come first, then the ones heard longest ago. Within that, the draw is
+   weighted toward titles that suit today and away from ones that name another season. */
+async function chooseIndex() {
+  const st = current, order = candidates();
+  if (!order.length) return 0;
+  const batch = order.slice(0, 12);
+  const titles = await Promise.all(batch.map(c => fetchTitle(ids[c.i])));
+  if (st !== current) return batch[0].i;
+  let pool = batch.filter((c, k) => { c.t = titles[k]; if (c.t === null) bad.add(ids[c.i]); return c.t !== null; });
+  const keys = Object.keys(state.titles);
+  if (keys.length > 1500) keys.slice(0, 400).forEach(k => delete state.titles[k]);
+  save();
+  if (!pool.length) { const rest = order.slice(12).find(c => !bad.has(ids[c.i])); return (rest || order[0]).i; }
+  pool = pool.some(c => c.fresh) ? pool.filter(c => c.fresh) : pool.slice(0, 4);
+  let r = Math.random() * pool.reduce((sum, c) => sum + titleWeight(c.t), 0);
+  for (const c of pool) { r -= titleWeight(c.t); if (r <= 0) return c.i; }
+  return pool[pool.length - 1].i;
+}
+async function playNext() {
+  const my = token, st = current;
+  const i = await chooseIndex();
+  if (my !== token || st !== current || !ready) return;
+  player.playVideoAt(i); nudge();
+}
+function onStateChange(e) {
+  if (checking || !current) return;
+  const d = player.getVideoData() || {};
+  if (!d.video_id) return;
+  if (d.video_id !== lastVid) {                                 // a new video is on screen: show it and re-color
+    lastVid = d.video_id; errors = 0;
+    $('npFrom').textContent = [current.name, current.kind].filter(Boolean).join(', ');
+    $('ytLink').href = linkFor(current, lastVid);
+    themeFromVideo(lastVid, current);
+  }
+  $('npTitle').textContent = d.title || current.name;
+  if (bad.has(lastVid)) return;                                 // already being skipped
+  if (d.title && state.titles[lastVid] === undefined) {         // title wasn't known when this was chosen, so weigh it now
+    state.titles[lastVid] = d.title;
+    if (current.src.type !== 'video' && titleFit(d.title) <= -3 && skips < 2 && ids.length > 2 && Math.random() < .7) {
+      skips++; bad.add(lastVid); return playNext();
+    }
+  }
+  if (e.data !== YT.PlayerState.PLAYING) return;
+  clearTimeout(hintTimer); setStatus('npStatus', '');
+  if (lastVid === loggedVid) return;
+  loggedVid = lastVid;                                          // it only counts as heard once it actually plays
+  const entry = state.log[current.id] || (state.log[current.id] = { n: 0, vids: {} });
+  entry.last = Date.now(); entry.n++; entry.vids[lastVid] = Date.now();
+  const keys = Object.keys(entry.vids);
+  if (keys.length > 150) keys.sort((p, q) => entry.vids[p] - entry.vids[q]).slice(0, keys.length - 150).forEach(k => delete entry.vids[k]);
+  save();
+}
+function onError(e) {
+  if (opening) { const done = opening; clearInterval(waitTimer); return openList(done); }   // this list doesn't exist: try the next
+  if (checking) { checking.err = e.data; return; }
+  if (!current) return;
+  errors++;
+  if (current.src.type !== 'video' && ids.length > 1 && errors < 8) {
+    try { bad.add(ids[player.getPlaylistIndex()]); } catch (x) {}
+    return playNext();                                          // usually a video whose owner blocks playing it off YouTube
+  }
+  setStatus('npStatus', current.src.type === 'video'
+    ? "This video's owner doesn't allow it to play outside YouTube. Use Open in YouTube, or remove it from the library."
+    : "These videos won't play outside YouTube. Try another station.", true);
+}
+function linkFor(st, vid) {
+  const s = st.src;
+  if (s.type === 'video') return 'https://www.youtube.com/watch?v=' + s.id;
+  const list = s.type === 'channel' ? 'UU' + s.id.slice(2) : s.id;
+  return vid ? `https://www.youtube.com/watch?v=${vid}&list=${list}` : 'https://www.youtube.com/playlist?list=' + list;
+}
+function renderAlts(list) {
+  const box = $('alts'); box.textContent = '';
+  list.forEach(st => {
+    const b = document.createElement('button');
+    b.className = 'chip'; b.type = 'button'; b.textContent = st.name;
+    const sm = document.createElement('small'); sm.textContent = st.kind || ENERGY[st.energy]; b.appendChild(sm);
+    b.addEventListener('click', () => {
+      const rest = state.last ? rank(state.last.head, state.last.work, st.id).slice(0, 3) : [];
+      playStation(st, rest);
+    });
+    box.appendChild(b);
+  });
+  $('altWrap').hidden = !list.length;
+}
+$('another').addEventListener('click', () => { if (ready && ids.length > 1) playNext(); });
+$('ytLink').addEventListener('click', () => { try { if (ready) player.pauseVideo(); } catch (e) {} });
+
+/* ───────── timer only ─────────
+   For when the music is coming from somewhere else. No player is built and nothing
+   is requested from YouTube; the timer, the session ledger and a fixed palette remain. */
+function setSolo(on) {
+  state.opts.solo = on; save();
+  document.querySelector('.main').classList.toggle('solo', on);
+  $('modeBtn').setAttribute('aria-pressed', String(on));
+  $('openLib').hidden = on;
+  if (on) {
+    clearTimeout(hintTimer); current = null; ducked = null; pausedByBreak = false;
+    teardown(); $('frame').hidden = true;
+  } else showPicker(false);
+  repaint();
+}
+$('modeBtn').addEventListener('click', () => setSolo(!solo()));
+
+/* ───────── timer ───────── */
+const timer = { f: state.opts.preset.f, b: state.opts.preset.b, phase: 'focus', round: 1, running: false, endAt: 0, total: 0, remaining: 0 };
+timer.total = timer.remaining = timer.f * 60000;
+let tick = 0, audio = null, wake = null, ducked = null, pausedByBreak = false;
+
+function drawClock() {
+  const secs = Math.max(0, Math.ceil(timer.remaining / 1000)), m = Math.floor(secs / 60), s = secs % 60;
+  const text = String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  const el = $('clock');
+  if (el.dataset.t !== text) {
+    el.dataset.t = text; el.textContent = '';
+    for (const ch of text) { const n = document.createElement(ch === ':' ? 'i' : 'b'); n.textContent = ch; el.appendChild(n); }
+    el.setAttribute('aria-label', `${m} minutes ${s} seconds left`);
+  }
+  $('phaseName').textContent = timer.phase === 'focus' ? 'Focus' : 'Break';
+  $('roundText').textContent = `Round ${timer.round} of ${ROUNDS}`;
+  $('startBtn').textContent = timer.running ? 'Pause' : (timer.remaining < timer.total ? 'Resume' : 'Start');
+  document.title = timer.running ? `${text} ${timer.phase === 'focus' ? 'Focus' : 'Break'} | Undertone` : 'Undertone';
+  const gone = (timer.total - timer.remaining) / 60000;          // minutes used in this block
+  const drain = (box, used) => [...box.children].forEach((cell, i) => {
+    cell.firstChild.style.height = (i < Math.floor(used) ? 0 : i === Math.floor(used) ? (1 - used % 1) * 100 : 100) + '%';
+  });
+  drain($('cellsF'), timer.phase === 'focus' ? gone / unitF() : Infinity);
+  drain($('cellsB'), timer.phase === 'break' ? gone / unitB() : 0);
+  $('blocks').setAttribute('aria-label', `${Math.ceil(timer.remaining / 60000)} of ${timer.phase === 'focus' ? timer.f : timer.b} ${timer.phase} minutes left`);
+}
+/* One square per minute of focus, one dot per minute of break, all the same size,
+   so a five-minute block looks as small as it is. Solid means still to come. */
+const unitF = () => timer.f <= 60 ? 1 : 5, unitB = () => timer.b <= 30 ? 1 : 5;
+function drawBlocks() {
+  const fill = (box, n) => { box.textContent = ''; for (let i = 0; i < n; i++) { const c = document.createElement('i'); c.appendChild(document.createElement('span')); box.appendChild(c); } };
+  const nF = Math.ceil(timer.f / unitF()), nB = Math.ceil(timer.b / unitB());
+  fill($('cellsF'), nF); fill($('cellsB'), nB);
+  $('cellsF').style.gridTemplateColumns = `repeat(${nF <= 25 ? Math.min(5, nF) : 10}, var(--cell))`;
+  $('cellsB').style.gridTemplateRows = `repeat(${Math.min(5, nB)}, var(--cell))`;
+  $('legend').textContent = `One square is ${unitF() === 1 ? 'a minute' : 'five minutes'} of focus. Dots are the break. Solid is what's left.`;
+}
+/* finished focus blocks, kept per day: each bar is as wide as the block was long */
+const dayKey = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+function drawToday() {
+  const list = state.days[dayKey()] || [], box = $('ledger'); box.textContent = '';
+  list.forEach((mins, i) => {
+    if (i && i % ROUNDS === 0) { const sp = document.createElement('i'); sp.className = 'sp'; box.appendChild(sp); }
+    const bar = document.createElement('i'); bar.style.width = Math.max(6, Math.round(mins * 1.6)) + 'px'; box.appendChild(bar);
+  });
+  const total = list.reduce((s, m) => s + m, 0), h = Math.floor(total / 60), m = total % 60;
+  $('todayText').textContent = list.length
+    ? `${list.length} session${list.length > 1 ? 's' : ''} today, ${h ? h + ' h ' : ''}${m || !h ? m + ' min' : ''} of focus`.replace(/\s+of/, ' of')
+    : 'No sessions finished yet today.';
+}
+function recordSession(mins) {
+  const k = dayKey(); (state.days[k] || (state.days[k] = [])).push(mins);
+  Object.keys(state.days).sort().slice(0, -30).forEach(old => delete state.days[old]);
+  save(); drawToday();
+}
+function drawPresets() {
+  const box = $('presetChips'); box.textContent = '';
+  const list = PRESETS.slice();
+  if (!list.some(p => p.f === timer.f && p.b === timer.b)) list.push({ f: timer.f, b: timer.b, name: 'Custom' });
+  list.forEach(p => {
+    const b = document.createElement('button'); b.className = 'chip'; b.type = 'button';
+    b.setAttribute('aria-pressed', String(p.f === timer.f && p.b === timer.b));
+    const big = document.createElement('b'); big.textContent = `${p.f} / ${p.b}`;
+    const sm = document.createElement('small'); sm.textContent = p.name;
+    b.append(big, sm); b.addEventListener('click', () => usePreset(p.f, p.b)); box.appendChild(b);
+  });
+}
+function setPhase(phase) {
+  timer.phase = phase;
+  timer.total = timer.remaining = (phase === 'focus' ? timer.f : timer.b) * 60000;
+  if (timer.running) timer.endAt = Date.now() + timer.remaining;
+}
+function usePreset(f, b) {
+  stop();
+  timer.f = f; timer.b = b; timer.round = 1; state.opts.preset = { f, b }; save();
+  setPhase('focus'); musicForPhase(); drawBlocks(); drawPresets(); drawClock();
+}
+function start() {
+  if (timer.running) return;
+  timer.running = true; timer.endAt = Date.now() + timer.remaining;
+  tick = setInterval(step, 250);
+  try { audio = audio || new (window.AudioContext || window.webkitAudioContext)(); if (audio.state === 'suspended') audio.resume(); } catch (e) {}
+  holdScreen(); drawClock();
+}
+function stop() { timer.running = false; clearInterval(tick); releaseScreen(); }
+function step() {
+  timer.remaining = timer.endAt - Date.now();
+  if (timer.remaining <= 0) advance(true);
+  drawClock();
+}
+function advance(announce) {
+  const was = timer.phase;
+  if (announce && was === 'focus') recordSession(timer.f);       // only a block that ran to the end counts
+  if (was === 'break') timer.round = timer.round % ROUNDS + 1;
+  setPhase(was === 'focus' ? 'break' : 'focus');
+  if (announce) {
+    if (state.opts.chime) chime(was === 'focus');
+    notify(was === 'focus' ? `Break for ${timer.b} min` : `Focus for ${timer.f} min`, was === 'focus' ? 'Step away from the screen.' : `Round ${timer.round} of ${ROUNDS}.`);
+    if (!state.opts.auto) stop();
+  }
+  musicForPhase(); drawClock();
+}
+function musicForPhase() {
+  if (!ready) return;
+  try {
+    if (timer.phase === 'break' && timer.running) {
+      if (state.opts.onBreak === 'pause' && player.getPlayerState() === YT.PlayerState.PLAYING) { player.pauseVideo(); pausedByBreak = true; }
+      if (state.opts.onBreak === 'lower' && ducked === null) { ducked = player.getVolume(); player.setVolume(Math.round(ducked * .35)); }
+    } else {
+      if (pausedByBreak) { player.playVideo(); pausedByBreak = false; }
+      if (ducked !== null) { player.setVolume(ducked); ducked = null; }
+    }
+  } catch (e) {}
+}
+function chime(toBreak) {
+  if (!audio) return;
+  const notes = toBreak ? [659.25, 523.25] : [523.25, 783.99], t0 = audio.currentTime;
+  notes.forEach((hz, i) => {
+    const o = audio.createOscillator(), g = audio.createGain(), t = t0 + i * .32;
+    o.type = 'sine'; o.frequency.value = hz;
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.22, t + .02); g.gain.exponentialRampToValueAtTime(.001, t + 1.1);
+    o.connect(g).connect(audio.destination); o.start(t); o.stop(t + 1.2);
+  });
+}
+function notify(title, body) {
+  try { if ('Notification' in window && Notification.permission === 'granted' && document.hidden) new Notification(title, { body, tag: 'undertone' }); } catch (e) {}
+}
+async function holdScreen() {
+  if (!('wakeLock' in navigator) || !matchMedia('(pointer: coarse)').matches) return;
+  try { wake = await navigator.wakeLock.request('screen'); } catch (e) {}
+}
+function releaseScreen() { try { if (wake) wake.release(); } catch (e) {} wake = null; }
+document.addEventListener('visibilitychange', () => { if (!document.hidden && timer.running) { holdScreen(); step(); } });
+
+$('startBtn').addEventListener('click', () => { if (timer.running) { stop(); } else { start(); musicForPhase(); } drawClock(); });
+$('skipBtn').addEventListener('click', () => { advance(false); });
+$('resetBtn').addEventListener('click', () => { stop(); timer.round = 1; setPhase('focus'); musicForPhase(); drawClock(); });
+document.addEventListener('keydown', e => {
+  if (e.code !== 'Space' || e.target.closest('input, textarea, select, button, a, summary, dialog')) return;
+  e.preventDefault(); $('startBtn').click();
+});
+
+/* timer options */
+$('optBreak').value = state.opts.onBreak; $('optAuto').checked = state.opts.auto; $('optChime').checked = state.opts.chime;
+$('optBreak').addEventListener('change', e => { state.opts.onBreak = e.target.value; save(); });
+$('optAuto').addEventListener('change', e => { state.opts.auto = e.target.checked; save(); });
+$('optChime').addEventListener('change', e => { state.opts.chime = e.target.checked; save(); });
+$('cUse').addEventListener('click', () => {
+  const f = Math.min(180, Math.max(1, parseInt($('cFocus').value, 10) || 0)), b = Math.min(60, Math.max(1, parseInt($('cBreak').value, 10) || 0));
+  usePreset(f, b);
+});
+function drawNotify() {
+  const has = 'Notification' in window, p = has ? Notification.permission : 'none';
+  $('optNotify').hidden = !has || p !== 'default';
+  $('notifyState').textContent = !has ? "This browser can't show notifications from a web page." : p === 'granted' ? 'Notifications are on.' : p === 'denied' ? 'Notifications are blocked in this browser\'s site settings.' : '';
+}
+$('optNotify').addEventListener('click', async () => { try { await Notification.requestPermission(); } catch (e) {} drawNotify(); });
+
+/* ───────── library ───────── */
+function ago(ts) {
+  if (!ts) return 'not played yet';
+  const d = Math.floor((Date.now() - ts) / DAY);
+  return d < 1 ? 'played today' : d === 1 ? 'played yesterday' : `played ${d} days ago`;
+}
+function drawLibrary(results) {
+  const ul = $('stations'); ul.textContent = '';
+  state.library.forEach(st => {
+    const li = document.createElement('li');
+    const name = document.createElement('span'); name.className = 'name'; name.textContent = st.name;
+    const meta = document.createElement('span'); meta.className = 'meta';
+    const res = results && results[st.id];
+    const fits = st.fits && st.fits.length ? 'best for ' + st.fits.map(SHOW).join(', ') : '';
+    meta.textContent = [st.kind, ENERGY[st.energy], VOCALS[st.vocals], fits, ago(state.log[st.id] && state.log[st.id].last), res].filter(Boolean).join(' / ');
+    const acts = document.createElement('span'); acts.className = 'acts';
+    const play = document.createElement('button'); play.className = 'btn small'; play.type = 'button'; play.textContent = 'Play';
+    play.addEventListener('click', () => { $('lib').close(); playStation(st, state.last ? rank(state.last.head, state.last.work, st.id).slice(0, 3) : []); });
+    const rm = document.createElement('button'); rm.className = 'btn small'; rm.type = 'button'; rm.textContent = 'Remove';
+    rm.addEventListener('click', () => {
+      if (rm.dataset.sure) { state.library = state.library.filter(x => x.id !== st.id); save(); drawLibrary(); }
+      else { rm.dataset.sure = '1'; rm.textContent = 'Remove for good'; }
+    });
+    const ed = document.createElement('button'); ed.className = 'btn small'; ed.type = 'button'; ed.textContent = 'Edit';
+    ed.addEventListener('click', () => {
+      editing = st.id;
+      $('aLink').value = st.src.type === 'channel' ? st.src.id : st.src.type === 'playlist' ? 'https://www.youtube.com/playlist?list=' + st.src.id : 'https://youtu.be/' + st.src.id;
+      $('aName').value = st.name; $('aKind').value = st.kind || ''; $('aEnergy').value = st.energy; $('aVocals').value = st.vocals;
+      $('aFits').value = (st.fits || []).map(SHOW).join(', ');
+      $('aSubmit').textContent = 'Save station'; $('aCancel').hidden = false;
+      $('aName').focus(); setStatus('libStatus', `Editing ${st.name}.`);
+    });
+    acts.append(play, ed, rm); li.append(name, meta, acts); ul.appendChild(li);
+  });
+  $('ioText').value = JSON.stringify({ library: state.library, log: state.log }, null, 1);
+}
+let editing = null;
+const parseFits = text => [...new Set(String(text || '').toLowerCase().split(/[^a-z]+/).map(w => w === 'fall' ? 'autumn' : w === 'gray' ? 'grey' : w === 'rainy' ? 'rain' : w).filter(w => FIT_WORDS.includes(w)))];
+function endEdit() { editing = null; $('addForm').reset(); $('aSubmit').textContent = 'Add station'; $('aCancel').hidden = true; }
+$('aCancel').addEventListener('click', () => { endEdit(); setStatus('libStatus', ''); });
+function parseSource(text) {
+  const t = text.trim(); let m;
+  if ((m = t.match(/(?:channel\/|^)(UC[\w-]{22})(?![\w-])/))) return { type: 'channel', id: m[1] };
+  if ((m = t.match(/[?&]list=([\w-]{12,})/)) || (m = t.match(/^((?:PL|UU|OL|RD|FL)[\w-]{10,})$/))) return { type: 'playlist', id: m[1] };
+  if ((m = t.match(/(?:[?&]v=|youtu\.be\/|\/live\/|\/embed\/|\/shorts\/)([\w-]{11})(?![\w-])/)) || (m = t.match(/^([\w-]{11})$/))) return { type: 'video', id: m[1] };
+  return null;
+}
+$('addForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const raw = $('aLink').value, src = parseSource(raw);
+  if (!src) {
+    setStatus('libStatus', /@|\/c\/|\/user\//.test(raw)
+      ? "That's a channel handle, which can't be looked up from here. On the channel page choose Share, then Copy channel ID, and paste the ID that starts with UC."
+      : "That doesn't look like a YouTube channel ID, playlist link or video link.", true);
+    return;
+  }
+  const name = $('aName').value.trim();
+  const fields = { name, src, kind: $('aKind').value.trim(), energy: +$('aEnergy').value, vocals: +$('aVocals').value, fits: parseFits($('aFits').value) };
+  const old = editing && state.library.find(s => s.id === editing);
+  if (old) {
+    if (old.src.id !== src.id) delete state.lists[old.id];
+    Object.assign(old, fields);
+  } else {
+    let id = name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || src.id;
+    while (state.library.some(s => s.id === id)) id += '-2';
+    state.library.push({ id, ...fields });
+  }
+  save(); endEdit(); setStatus('libStatus', `${old ? 'Saved' : 'Added'} ${name}.`); drawLibrary();
+});
+$('openLib').addEventListener('click', () => { setStatus('libStatus', ''); drawLibrary(); $('lib').showModal(); });
+$('browse').addEventListener('click', () => $('openLib').click());
+$('closeLib').addEventListener('click', () => $('lib').close());
+$('ioCopy').addEventListener('click', async () => {
+  try { await navigator.clipboard.writeText($('ioText').value); setStatus('libStatus', 'Copied. Paste it into Library on the other device.'); }
+  catch (e) { $('ioText').select(); setStatus('libStatus', 'Select the text and copy it.'); }
+});
+$('ioLoad').addEventListener('click', () => {
+  try {
+    const d = JSON.parse($('ioText').value), lib = Array.isArray(d) ? d : d.library;
+    if (!Array.isArray(lib) || !lib.every(s => s && s.id && s.name && s.src && s.src.id && /^(channel|playlist|video)$/.test(s.src.type))) throw 0;
+    state.library = lib.map(s => ({ id: String(s.id), name: String(s.name), src: { type: s.src.type, id: String(s.src.id) }, kind: String(s.kind || ''), energy: [1, 2, 3].includes(+s.energy) ? +s.energy : 2, vocals: [0, 1, 2].includes(+s.vocals) ? +s.vocals : 0, fits: parseFits(Array.isArray(s.fits) ? s.fits.join(' ') : '') }));
+    if (d.log && typeof d.log === 'object') state.log = d.log;
+    save(); drawLibrary(); setStatus('libStatus', `Library replaced: ${lib.length} stations.`);
+  } catch (e) { setStatus('libStatus', "That text isn't a library copied from Undertone.", true); }
+});
+$('ioReset').addEventListener('click', () => { state.library = STARTER.map(s => ({ ...s })); save(); drawLibrary(); setStatus('libStatus', 'Original stations restored.'); });
+
+/* play each station muted for a moment to confirm its link works and whose channel it is */
+$('checkLib').addEventListener('click', async () => {
+  const results = {}, sleep = ms => new Promise(r => setTimeout(r, ms));
+  $('checkLib').disabled = true; current = null; checking = { err: null };
+  $('now').hidden = true; $('picker').hidden = true;
+  const author = async () => {
+    for (let i = 0; i < 30 && !checking.err; i++) {
+      await sleep(200);
+      try { const d = player.getVideoData() || {}; if (d.author) return d.author; } catch (e) {}
+    }
+    return '';
+  };
+  for (const st of state.library) {
+    setStatus('libStatus', `Checking ${st.name}…`); checking.err = null;
+    if (st.src.type === 'video') {
+      await new Promise(res => build({ videoId: st.src.id, playerVars: { autoplay: 1, mute: 1 } }, res));
+      const who = await author();
+      results[st.id] = checking.err ? "can't be played outside YouTube" : who ? 'works, from ' + who : 'loaded, but no reply about whose it is';
+    } else {
+      lists = sourceLists(st.src);
+      const got = await new Promise(res => openList(res));
+      if (!got) { results[st.id] = "didn't load"; delete state.lists[st.id]; }
+      else {
+        state.lists[st.id] = listId;
+        try { player.mute(); player.playVideoAt(0); } catch (e) {}
+        const who = await author();
+        results[st.id] = `works: ${got.length} videos${/^UULF/.test(listId) || st.src.type === 'playlist' ? '' : ', shorts included'}${who ? ', from ' + who : ''}`;
+      }
+    }
+    drawLibrary(results);
+  }
+  try { if (player) player.unMute(); } catch (e) {}
+  await sleep(150);
+  teardown(); $('frame').hidden = true; checking = null; save();
+  $('checkLib').disabled = false; window.__check = results;
+  setStatus('libStatus', 'Check finished.'); drawLibrary(results); showPicker(false);
+});
+
+/* ───────── go ───────── */
+drawBlocks(); drawToday(); drawPresets(); drawClock(); drawNotify();
+if (solo()) setSolo(true); else showPicker(false);
+if (location.protocol === 'file:') setStatus('pickStatus', "This page is open as a file on disk. YouTube only plays on pages opened from a web address, so the music won't start here.", true);
+window.undertone = { state, playStation, applyPalette, readPalette, timer, advance, ctx, manual, refreshCtx, titleFit, titleWeight, ctxFit, rank, SCHEMES, PALETTES, paint, repaint, setSolo };
+})();
+</script>
+</body>
+</html>
