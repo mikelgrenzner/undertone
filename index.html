@@ -579,7 +579,11 @@ const PALETTES = {
   bubblegum: { name: 'Bubblegum', h: [318, 196, 52] },
   aurora:    { name: 'Aurora',    h: [176, 230, 278] },
   // tone: for each of the three colors, how vivid it is and how much lighter or darker, so one can be a mist grey
-  cascadia:  { name: 'Cascadia',  h: [212, 204, 150], sat: .5, tone: [[1, -6], [.2, 22], [1.05, -13]] }
+  cascadia:  { name: 'Cascadia',  h: [212, 204, 150], sat: .5, tone: [[1, -6], [.2, 22], [1.05, -13]], muted: true },
+  // autumn, in watercolor: turning ash leaves, the harvest table, fog in the hollow
+  ash:       { name: 'White Ash', h: [104, 40, 6], sat: .6, stops: [104, 54, 28, 4], tone: [[.8, -2], [1, 9], [1, 4], [.95, -3]], muted: true },
+  harvest:   { name: 'Harvest',   h: [30, 16, 348], sat: .62, stops: [46, 26, 14, 348], tone: [[.7, 13], [1, 1], [.95, -7], [.9, -10]], muted: true },
+  hollow:    { name: 'Hollow',    h: [276, 256, 96], sat: .5, stops: [278, 252, 96], tone: [[.95, -7], [.16, 20], [.75, -2]], muted: true }
 };
 let curPalette = null, curLabel = '', booted = false, groundLum = 0;
 const solo = () => !!state.opts.solo;
@@ -729,7 +733,7 @@ function drawPalettes() {
   const grad = css => () => { const g = document.createElement('span'); g.className = 'prev grad'; g.style.background = css; return g; };
   const items = Object.entries(PALETTES).map(([key, f]) => {
     const c = t => cellColor(t, f, 'poster', null);              // the same colors the field will show
-    return { key, name: f.name, preview: grad(`linear-gradient(90deg, ${[0, .25, .5, .75, 1].map(c).join(', ')})`) };
+    return { key, name: f.name, sub: f.muted ? 'muted' : '', preview: grad(`linear-gradient(90deg, ${[0, .25, .5, .75, 1].map(c).join(', ')})`) };
   });
   if (!solo()) items.unshift({ key: 'video', name: 'From the video', preview: grad('conic-gradient(from 90deg, #f43, #fc3, #3c8, #38f, #c4f, #f43)') });
   ddPalette.set(items, solo() || state.opts.palette !== 'video' ? (PALETTES[state.opts.fixed] ? state.opts.fixed : 'inferno') : 'video');
