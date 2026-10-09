@@ -570,18 +570,15 @@ const SCHEMES = {
 /* Fixed palettes, for when nothing is playing here: three dye-bath colors each,
    base first, then the timer block, then the highlights. */
 const PALETTES = {
-  inferno:   { name: 'Inferno',    h: [356, 24, 48] },
-  citrus:    { name: 'Citrus',     h: [78, 50, 24] },
-  sunset:    { name: 'Sunset',     h: [282, 338, 28] },
-  tropical:  { name: 'Tropical',   h: [168, 334, 38] },
-  bubblegum: { name: 'Bubblegum',  h: [318, 196, 52] },
-  grape:     { name: 'Grape Soda', h: [268, 304, 188] },
-  deepsea:   { name: 'Deep Sea',   h: [228, 198, 266] },
-  lagoon:    { name: 'Lagoon',     h: [200, 172, 48] },
-  peacock:   { name: 'Peacock',    h: [182, 224, 278] },
-  aurora:    { name: 'Aurora',     h: [252, 150, 186] },
-  moss:      { name: 'Moss',       h: [140, 92, 36], sat: .82 },
-  rainy:     { name: 'Rainy Day',  h: [212, 194, 256], sat: .55 }
+  inferno:   { name: 'Inferno',   h: [356, 24, 48] },
+  citrus:    { name: 'Citrus',    h: [66, 34, 4] },
+  sunset:    { name: 'Sunset',    h: [282, 338, 28] },
+  tropical:  { name: 'Tropical',  h: [168, 334, 38] },
+  bubblegum: { name: 'Bubblegum', h: [318, 196, 52] },
+  deepsea:   { name: 'Deep Sea',  h: [228, 198, 266] },
+  aurora:    { name: 'Aurora',    h: [176, 230, 278] },
+  // tone: for each of the three colors, how vivid it is and how much lighter or darker, so one can be a mist grey
+  cascadia:  { name: 'Cascadia',  h: [212, 204, 150], sat: .5, tone: [[1, -6], [.2, 22], [1.05, -13]] }
 };
 let curPalette = null, curLabel = '', booted = false, groundLum = 0;
 const solo = () => !!state.opts.solo;
@@ -592,7 +589,7 @@ function repaint() {
   const fixed = solo() || state.opts.palette !== 'video';
   const f = PALETTES[state.opts.fixed] || PALETTES.inferno;
   document.documentElement.classList.toggle('fixed', fixed);
-  if (fixed) paint({ h: f.h, sat: f.sat, sw: null }, f.name); else paint(videoPal.p, videoPal.label);
+  if (fixed) paint({ h: f.h, sat: f.sat, tone: f.tone, sw: null }, f.name); else paint(videoPal.p, videoPal.label);
   drawPalettes();
 }
 function paint(p, label) {
@@ -620,17 +617,18 @@ function paint(p, label) {
 }
 /* The color of a square at position t (0 at one corner of the field, 1 at the other).
    The hue walks through the palette's three colors, so a full field shows all of it. */
-function cellColor(t) {
-  const key = SCHEMES[state.opts.scheme] ? state.opts.scheme : 'poster', [h1, h2, h3] = curPalette.h;
-  SAT = curPalette.sat || 1;
+function cellColor(t, pal = curPalette, key = SCHEMES[state.opts.scheme] ? state.opts.scheme : 'poster', ground = groundLum) {
+  const [h1, h2, h3] = pal.h, keep = SAT;
+  SAT = pal.sat || 1;
   t = Math.min(1, Math.max(0, t));
-  const onGround = (h, s, l) => hsl(...readable(h, s, l, groundLum, 3));          // a shape needs 3:1 against the ground
-  if (key === 'mono') return onGround(h1, sv(88), groundLum > .3 ? 22 + 34 * t : 40 + 42 * t);   // one hue: dark to light
-  const stops = [h1, h2, h3], x = Math.min(1.9999, t * 2), i = Math.floor(x);
+  const onGround = (h, s, l) => { SAT = keep; return hsl(...(ground === null ? [h, s, l] : readable(h, s, l, ground, 3))); };   // a shape needs 3:1 against the ground
+  if (key === 'mono') return onGround(h1, sv(88), ground > .3 ? 22 + 34 * t : 40 + 42 * t);     // one hue: dark to light
+  const stops = [h1, h2, h3], x = Math.min(1.9999, t * 2), i = Math.floor(x), f = x - i;
   let d = norm(stops[i + 1]) - norm(stops[i]);
   if (d > 180) d -= 360; else if (d < -180) d += 360;            // the short way round the color wheel
   const [sat, from, to] = { poster: [92, 54, 64], midnight: [98, 56, 66], daylight: [88, 44, 54], dusk: [48, 52, 64] }[key];
-  return onGround(stops[i] + d * (x - i), sv(sat), from + (to - from) * t);
+  const tone = k => pal.tone ? pal.tone[i][k] + (pal.tone[i + 1][k] - pal.tone[i][k]) * f : 1 - k;
+  return onGround(stops[i] + d * f, sv(sat) * tone(0), from + (to - from) * t + tone(1));
 }
 function colorCells() {
   document.querySelectorAll('#cells i').forEach(c => { c.firstChild.style.backgroundColor = cellColor(+c.dataset.t || 0); });
@@ -729,8 +727,8 @@ function drawPalettes() {
   });
   const grad = css => () => { const g = document.createElement('span'); g.className = 'prev grad'; g.style.background = css; return g; };
   const items = Object.entries(PALETTES).map(([key, f]) => {
-    const k = f.sat || 1, c = (h, l) => hsl(h, 88 * k, l);
-    return { key, name: f.name, preview: grad(`linear-gradient(90deg, ${c(f.h[0], 42)}, ${c(f.h[1], 56)}, ${c(f.h[2], 60)})`) };
+    const c = t => cellColor(t, f, 'poster', null);              // the same colors the field will show
+    return { key, name: f.name, preview: grad(`linear-gradient(90deg, ${[0, .25, .5, .75, 1].map(c).join(', ')})`) };
   });
   if (!solo()) items.unshift({ key: 'video', name: 'From the video', preview: grad('conic-gradient(from 90deg, #f43, #fc3, #3c8, #38f, #c4f, #f43)') });
   ddPalette.set(items, solo() || state.opts.palette !== 'video' ? (PALETTES[state.opts.fixed] ? state.opts.fixed : 'inferno') : 'video');
