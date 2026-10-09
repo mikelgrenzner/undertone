@@ -1171,8 +1171,8 @@ function layoutBlocks() {
   box.style.setProperty('--cell', cell + 'px'); box.style.setProperty('--gap', Math.max(2, cell * G) + 'px');
   $('cells').style.gridTemplateColumns = `repeat(${cols}, var(--cell))`;
   cells.forEach((c, i) => {                                                                  // where a square sits decides its color
-    const x = cols > 1 ? (i % cols) / (cols - 1) : 0, y = rows > 1 ? Math.floor(i / cols) / (rows - 1) : 0;
-    const t = rows === 1 ? x : cols === 1 ? y : x * .7 + y * .3;
+    const col = i % cols, row = Math.floor(i / cols);
+    const t = cols + rows > 2 ? (col + row) / (cols + rows - 2) : 0;          // one step across equals one step down: a true diagonal at any shape
     c.dataset.t = t.toFixed(4); c.style.setProperty('--t', t.toFixed(3));
   });
   colorCells();
