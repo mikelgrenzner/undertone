@@ -486,7 +486,7 @@ const VOCALS = { 0: 'no vocals', 1: 'some vocals', 2: 'frequent vocals' };
 
 /* ───────── saved state (this browser only) ───────── */
 const KEY = 'undertone.v1';
-const state = { library: STARTER.map(s => ({ ...s })), log: {}, last: null, lists: {}, titles: {}, dur: {}, live: {}, sky: null, liveSky: true, days: {},
+const state = { library: STARTER.map(s => ({ ...s })), log: {}, last: null, lists: {}, titles: {}, dur: {}, live: {}, liveSeen: {}, rec: {}, sky: null, liveSky: true, days: {},
   opts: { preset: { f: 25, b: 5 }, onBreak: 'keep', auto: true, chime: true, scheme: 'poster', palette: 'video', fixed: 'inferno', solo: false, minLen: 3600, live: true } };
 try {
   const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
@@ -500,6 +500,8 @@ try {
     if (saved.days) state.days = saved.days;
     if (saved.dur) state.dur = saved.dur;
     if (saved.live) state.live = saved.live;
+    if (saved.liveSeen) state.liveSeen = saved.liveSeen;
+    if (saved.rec) state.rec = saved.rec;
     if (saved.liveSky === false) state.liveSky = false;
     if (saved.opts) Object.assign(state.opts, saved.opts);
   }
@@ -949,7 +951,7 @@ function setStatus(id, text, warn) { const el = $(id); el.textContent = text || 
    makes it impossible to tell whose videos you are choosing from. */
 let player = null, ready = false, apiState = 'idle', apiWaiter = null, token = 0, waitTimer = 0;
 let current = null, lists = [], listId = null, ids = [], lastVid = null, loggedVid = null, errors = 0, bad = new Set();
-let live = false, liveDone = null;                             // false, 'trying' or 'on'
+let live = false, liveSkips = 0, recTimer = 0, liveAsked = false, cameFrom = null;                 // live: playing from the channel's list of live streams
 let opening = null, hintTimer = 0, skips = 0, lenSkips = 0, shortNote = '', passing = null, settle = false;
 let checking = null;
 
@@ -1017,6 +1019,7 @@ function playStation(st, alternates) {
   $('npTitle').textContent = 'Loading ' + st.name;
   $('npFrom').textContent = st.kind || '';
   $('another').hidden = st.src.type === 'video'; $('another').textContent = 'Another video'; $('goLive').hidden = true;
+  liveSkips = 0; liveAsked = false; clearTimeout(recTimer);
   $('ytLink').href = linkFor(st, null);
   setStatus('npStatus', location.protocol === 'file:' ? "This page is open as a file on disk, and YouTube only plays on pages opened from a web address." : '', true);
   drawStations();
@@ -1027,59 +1030,106 @@ function playStation(st, alternates) {
   if (wantsLive(st)) return openLive(st);
   openUploads(st);
 }
-function openUploads(st) {
-  live = false; liveDone = null;
-  $('another').textContent = 'Another video'; $('goLive').hidden = !hasLive(st);
+function openUploads(st, note) {
+  live = false; clearTimeout(recTimer);
+  $('another').hidden = false; $('another').textContent = 'Another video';
+  $('goLive').textContent = 'Live radio'; $('goLive').hidden = st.src.type !== 'channel' || liveMissed(st);
   const known = state.lists[st.id];
   lists = known && sourceLists(st.src).includes(known) ? [known] : sourceLists(st.src);
   openList(got => {
     if (current !== st) return;
     if (!got) { delete state.lists[st.id]; return setStatus('npStatus', `${st.name} wouldn't load. Check its link in Library, or switch stations.`, true); }
     ids = got; state.lists[st.id] = listId; save();
+    if (note) shortNote = note;
     playNext();
   });
 }
-/* Live radio. A channel's current live stream can be asked for by channel, without knowing
-   its video. Whether there is one, and whether it may play off YouTube, is only known by
-   trying: a real video id appears within a moment, or the player reports an error. A miss
-   is remembered for half a day so the station opens straight to its videos meanwhile. */
-const LIVE_RETRY = 12 * 3600e3;
+/* Live radio. Every channel has a list of its live streams, the same one behind its Live tab:
+   UULV + the channel ID without its leading UC. It holds what is live now mixed with
+   recordings of streams that have ended, newest first, and many channels run several at
+   once. Which is which only shows once a video loads: a live one reports itself live, a
+   recording reports a length. Both are remembered, and until then the title is the guide. */
+const LIVE_RETRY = 12 * 3600e3, LIVE_FRESH = 3 * DAY, REC_KEEP = 45 * DAY;
+const LIVE_HINT = /24\s*\/\s*7|\bradio\b|live\s*-?\s*stream|\bnon-?stop\b/i;
+const liveList = src => 'UULV' + src.id.slice(2);
 const hasLive = st => !!(state.live[st.id] && state.live[st.id].ok);
-function wantsLive(st) {
-  if (!state.opts.live || st.src.type !== 'channel') return false;
-  const seen = state.live[st.id];
-  return !(seen && !seen.ok && Date.now() - seen.at < LIVE_RETRY);
-}
+const liveMissed = st => { const seen = state.live[st.id]; return !!(seen && !seen.ok && Date.now() - seen.at < LIVE_RETRY); };
+const wantsLive = st => !!state.opts.live && st.src.type === 'channel' && !liveMissed(st);
+const isRec = id => Date.now() - (state.rec[id] || 0) < REC_KEEP;
+const seenLive = id => Date.now() - (state.liveSeen[id] || 0) < LIVE_FRESH;
 function openLive(st) {
-  live = 'trying'; $('goLive').hidden = true;
-  build({ videoId: 'live_stream', playerVars: { channel: st.src.id, autoplay: 1 } }, () => {
-    const my = token, t0 = Date.now();
-    liveDone = ok => {
-      if (my !== token || live !== 'trying') return;
-      clearInterval(waitTimer); liveDone = null;
-      state.live[st.id] = { ok, at: Date.now() }; save();
-      if (!ok) return openUploads(st);
-      live = 'on';
-      $('another').textContent = 'Play a video instead';
-      try { player.playVideo(); } catch (e) {}
-      nudge(); drawStations();
-    };
-    if (live === 'failed') { live = 'trying'; return liveDone(false); }   // the error arrived before the player said it was ready
-    waitTimer = setInterval(() => {
-      if (my !== token) return clearInterval(waitTimer);
-      let id = ''; try { id = (player.getVideoData() || {}).video_id || ''; } catch (e) {}
-      if (isVid(id)) liveDone(true); else if (Date.now() - t0 > 2500) liveDone(false);
-    }, 100);
+  live = true; liveSkips = 0; clearTimeout(recTimer);
+  $('goLive').hidden = true;
+  lists = [liveList(st.src)];
+  openList(got => {
+    if (current !== st) return;
+    if (!got) return noLive();
+    ids = got;
+    $('another').textContent = 'Another live station'; $('another').hidden = ids.length < 2;
+    $('goLive').textContent = 'Videos instead'; $('goLive').hidden = false;
+    playNext();
   });
 }
-const isVid = id => /^[\w-]{11}$/.test(id) && id !== 'live_stream';
+/* which live stream next: one seen live lately or whose title says radio or 24/7 comes first;
+   the rest of the list is only explored near its top, or when nothing better is there */
+async function chooseLive() {
+  const st = current;
+  const order = candidates().filter(c => !isRec(ids[c.i]) && c.i < 60);
+  const titles = await Promise.all(order.map(c => fetchTitle(ids[c.i])));
+  if (st !== current) return -1;
+  const cands = [];
+  order.forEach((c, k) => {
+    if (titles[k] === null) return bad.add(ids[c.i]);
+    c.title = titles[k]; c.sure = seenLive(ids[c.i]) ? 3 : LIVE_HINT.test(c.title) ? 2.5 : 0; cands.push(c);
+  });
+  save();
+  const any = cands.some(c => c.sure);
+  cands.forEach(c => { c.w = (c.sure || (!any ? 1 : c.i < 12 ? .5 : 0)) * titleWeight(c.title) * (c.fresh ? 1 : .2); });
+  const pool = cands.filter(c => c.w > 0);
+  if (!pool.length) return -1;
+  let r = Math.random() * pool.reduce((sum, c) => sum + c.w, 0);
+  for (const c of pool) { r -= c.w; if (r <= 0) return c.i; }
+  return pool[pool.length - 1].i;
+}
+/* the one on screen turned out to be a recording of a stream that has ended */
+function notLive(vid) {
+  if (!live || vid !== lastVid || !current) return;
+  let d = {}, secs = 0; try { d = player.getVideoData() || {}; secs = Math.round(player.getDuration() || 0); } catch (e) {}
+  if (d.video_id !== vid || d.isLive || !secs) return;
+  state.rec[vid] = Date.now();
+  const all = Object.keys(state.rec); if (all.length > 2000) all.slice(0, 500).forEach(k => delete state.rec[k]);
+  passing = vid; save();
+  if (++liveSkips <= 5) return playNext();
+  noLive();
+}
+/* nothing else on the list is live: go back to one that is, or to the channel's videos */
+function noLive() {
+  const st = current; if (!st) return;
+  const back = ids.findIndex(id => seenLive(id) && !isRec(id) && !bad.has(id));
+  liveSkips = 0;
+  if (live && ready && back >= 0) {
+    if (ids[back] === passing) passing = null;
+    shortNote = 'Nothing else live turned up on this channel.'; setStatus('npStatus', shortNote);
+    if (ids[back] !== lastVid) { player.playVideoAt(back); nudge(); }
+    return;
+  }
+  state.live[st.id] = { ok: false, at: Date.now() }; save(); drawStations();
+  const asked = liveAsked;
+  resetPlay(st);
+  openUploads(st, asked ? 'Nothing is live on this channel right now, so here are its videos.' : '');
+}
+const isVid = id => /^[\w-]{11}$/.test(id);
+function resetPlay(st) {
+  lastVid = loggedVid = null; errors = 0; skips = 0; lenSkips = 0; liveSkips = 0; shortNote = ''; passing = null; settle = false; ids = []; bad = new Set();
+  clearTimeout(hintTimer); clearTimeout(recTimer); liveAsked = false; cameFrom = null;
+  $('npTitle').textContent = 'Loading ' + st.name; setStatus('npStatus', '');
+}
 /* from the live radio to the station's videos, or back */
 function switchSource(toLive) {
   if (!current || current.src.type !== 'channel') return;
   const st = current;
-  lastVid = loggedVid = null; errors = 0; skips = 0; lenSkips = 0; shortNote = ''; passing = null; settle = false; ids = []; bad = new Set(); clearTimeout(hintTimer);
-  $('npTitle').textContent = 'Loading ' + st.name; setStatus('npStatus', '');
-  if (toLive) openLive(st); else openUploads(st);
+  resetPlay(st);
+  if (toLive) { liveAsked = true; openLive(st); } else openUploads(st);
 }
 /* some browsers, iPhone Safari among them, won't start sound until the video itself is tapped */
 function nudge() {
@@ -1172,8 +1222,12 @@ async function chooseIndex() {
 }
 async function playNext() {
   const my = token, st = current;
-  const i = await chooseIndex();
-  if (my !== token || st !== current || !ready) return;
+  const wasLive = live;
+  if (live && shortNote) { shortNote = ''; setStatus('npStatus', ''); }
+  const i = live ? await chooseLive() : await chooseIndex();
+  if (my !== token || st !== current || !ready || live !== wasLive) return;
+  if (i < 0) return noLive();
+  if (live && cameFrom && ids[i] === cameFrom) shortNote = 'Nothing else live turned up on this channel.';
   if (ids[i] === passing) passing = null;
   player.playVideoAt(i); nudge();
 }
@@ -1181,7 +1235,6 @@ function onStateChange(e) {
   if (checking || !current) return;
   const d = player.getVideoData() || {};
   if (!d.video_id || !isVid(d.video_id)) return;
-  if (live === 'trying' && liveDone) liveDone(true);
   const single = current.src.type === 'video' || !!live;       // nothing to skip to
   if (d.video_id !== lastVid) {                                 // a new video is on screen: show it and re-color
     lastVid = d.video_id; errors = 0;
@@ -1198,6 +1251,20 @@ function onStateChange(e) {
     }
   }
   let secs = 0; try { secs = Math.round(player.getDuration() || 0); } catch (x) {}
+  if (live) {
+    if (d.isLive) {
+      clearTimeout(recTimer); liveSkips = 0;
+      if (Date.now() - (state.liveSeen[lastVid] || 0) > DAY || !hasLive(current)) {
+        state.liveSeen[lastVid] = Date.now(); delete state.rec[lastVid];
+        const all = Object.keys(state.liveSeen); if (all.length > 500) all.slice(0, 100).forEach(k => delete state.liveSeen[k]);
+        state.live[current.id] = { ok: true, at: Date.now() }; save(); drawStations();
+      }
+    } else {
+      // a length and no "live" means a recording, but both can lag a moment behind a change of video, so look again shortly
+      if (secs > 0) { const vid = lastVid; clearTimeout(recTimer); recTimer = setTimeout(() => notLive(vid), 1200); }
+      return;                                                   // not counted as heard until it shows itself to be live
+    }
+  }
   if (secs > 0 && !d.isLive && !live && lastVid !== loggedVid) {         // the length is known now: remember it, and skip if it's too short
     if (state.dur[lastVid] !== secs) {
       state.dur[lastVid] = secs;
@@ -1216,7 +1283,7 @@ function onStateChange(e) {
   if (e.data !== YT.PlayerState.PLAYING) return;
   clearTimeout(hintTimer); setStatus('npStatus', shortNote);
   if (lastVid === loggedVid) return;
-  loggedVid = lastVid; lenSkips = 0;                            // it only counts as heard once it actually plays
+  loggedVid = lastVid; lenSkips = 0; cameFrom = null;                            // it only counts as heard once it actually plays
   const entry = state.log[current.id] || (state.log[current.id] = { n: 0, vids: {} });
   entry.last = Date.now(); entry.n++; entry.vids[lastVid] = Date.now();
   const keys = Object.keys(entry.vids);
@@ -1227,11 +1294,6 @@ function onError(e) {
   if (opening) { const done = opening; clearInterval(waitTimer); return openList(done); }   // this list doesn't exist: try the next
   if (checking) { checking.err = e.data; return; }
   if (!current) return;
-  if (live === 'trying') { if (liveDone) liveDone(false); else live = 'failed'; return; }
-  if (live === 'on') {                                           // the stream has stopped, or stopped allowing this
-    state.live[current.id] = { ok: false, at: Date.now() }; save(); drawStations();
-    return switchSource(false);
-  }
   errors++;
   if (current.src.type !== 'video' && ids.length > 1 && errors < 8) {
     try { bad.add(ids[player.getPlaylistIndex()]); } catch (x) {}
@@ -1265,8 +1327,13 @@ function showIdle() {
   setStatus('idleStatus', location.protocol === 'file:' ? "This page is open as a file on disk. YouTube only plays on pages opened from a web address." : '', true);
   drawStations();
 }
-$('another').addEventListener('click', () => { if (live) return switchSource(false); if (ready && ids.length > 1) playNext(); });
-$('goLive').addEventListener('click', () => switchSource(true));
+$('another').addEventListener('click', () => {
+  if (!ready || ids.length < 2) return;
+  if (live && lastVid && lastVid !== loggedVid) bad.add(lastVid);  // it never started: a stream that is scheduled, not on
+  cameFrom = live && lastVid === loggedVid ? lastVid : null;
+  playNext();
+});
+$('goLive').addEventListener('click', () => switchSource(!live));
 $('ytLink').addEventListener('click', () => { try { if (ready) player.pauseVideo(); } catch (e) {} });
 
 /* ───────── timer only ─────────
