@@ -1071,7 +1071,7 @@ function openLive(st) {
   });
 }
 /* which live stream next: one seen live lately or whose title says radio or 24/7 comes first;
-   the rest of the list is only explored near its top, or when nothing better is there */
+   the rest is tried now and then near the top of the list, or freely when nothing better is there */
 async function chooseLive() {
   const st = current;
   const order = candidates().filter(c => !isRec(ids[c.i]) && c.i < 60);
@@ -1083,9 +1083,12 @@ async function chooseLive() {
     c.title = titles[k]; c.sure = seenLive(ids[c.i]) ? 3 : LIVE_HINT.test(c.title) ? 2.5 : 0; cands.push(c);
   });
   save();
-  const any = cands.some(c => c.sure);
-  cands.forEach(c => { c.w = (c.sure || (!any ? 1 : c.i < 12 ? .5 : 0)) * titleWeight(c.title) * (c.fresh ? 1 : .2); });
-  const pool = cands.filter(c => c.w > 0);
+  const known = cands.filter(c => c.sure), guess = cands.filter(c => !c.sure && (!known.length || c.i < 12));
+  known.forEach(c => { c.w = c.sure * titleWeight(c.title) * (c.fresh ? 1 : .2); });
+  // the unproven ones share a quarter of the draw between them, so a wrong guess stays occasional
+  const share = known.length ? .25 * known.reduce((sum, c) => sum + c.w, 0) / (guess.length || 1) : 1;
+  guess.forEach(c => { c.w = share * titleWeight(c.title) * (known.length ? 1 : c.fresh ? 1 : .2); });
+  const pool = known.concat(guess).filter(c => c.w > 0);
   if (!pool.length) return -1;
   let r = Math.random() * pool.reduce((sum, c) => sum + c.w, 0);
   for (const c of pool) { r -= c.w; if (r <= 0) return c.i; }
