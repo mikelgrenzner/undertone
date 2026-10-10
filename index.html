@@ -175,7 +175,7 @@ button { cursor: pointer; }
 
 /* dialogs: mood picker, timer options, library */
 dialog { border: 0; padding: 0; background: var(--bg); color: var(--ink); width: min(920px, calc(100vw - 32px)); max-height: calc(100dvh - 32px); border-radius: 4px; box-shadow: 0 0 0 4px var(--c); }
-dialog.narrow { width: min(660px, calc(100vw - 32px)); }
+dialog.narrow { width: min(700px, calc(100vw - 32px)); }
 dialog::backdrop { background: rgb(0 0 0 / .6); }
 .sheet { padding: 20px; display: grid; gap: 18px; }
 .sheet header { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -191,8 +191,19 @@ dialog::backdrop { background: rgb(0 0 0 / .6); }
 .chip:hover { border-color: var(--ink); }
 .chip[aria-pressed="true"] { background: var(--b); border-color: var(--b); color: var(--b-ink); }
 .chip small { display: block; font-weight: 500; font-size: .8125rem; opacity: .8; }
-.outside { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
-.outside p { margin: 0; font-weight: 600; }
+.tiles { display: grid; gap: 8px; }
+.tiles.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.tiles.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.tiles .chip { border-radius: 8px; padding: 10px 8px; min-height: 66px; text-align: center; display: grid; align-content: center; gap: 3px; }
+.outside { display: flex; gap: 12px; align-items: center; justify-content: space-between; }
+.outside p { margin: 0; font-weight: 600; text-wrap: pretty; }
+.outside .btn, #pickDlg header .btn { flex: none; }
+#pickDlg header { flex-wrap: nowrap; align-items: flex-start; }
+.foot { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; }
+.foot.line { border-top: 2px solid var(--line); padding-top: 16px; transition: border-color var(--fade); }
+.check { display: flex; gap: 10px; align-items: center; font-weight: 600; }
+.ctx-row { display: grid; grid-template-columns: 4.5em minmax(0, 1fr); gap: 6px 12px; align-items: center; }
+.ctx-lab { font-weight: 600; color: var(--ink-soft); font-size: .9375rem; }
 .ctx { display: grid; gap: 12px; padding: 14px; border: 2px solid var(--line); border-radius: 4px; transition: border-color var(--fade); }
 .ctx .chip { padding: 7px 13px; font-size: .9375rem; }
 details summary { cursor: pointer; font-weight: 600; color: var(--ink-soft); }
@@ -227,6 +238,9 @@ textarea.field { width: 100%; min-height: 120px; font: 13px/1.4 ui-monospace, Me
 }
 @media (max-width: 520px) {
   .sheet { padding: 16px; }
+  .tiles.four { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .tiles.three, .ctx-row { grid-template-columns: minmax(0, 1fr); }
+  .tiles.three .chip { min-height: 0; }
 }
 @media (prefers-reduced-motion: reduce) {
   :root { --fade: 0s; }
@@ -294,6 +308,7 @@ textarea.field { width: 100%; min-height: 120px; font: 13px/1.4 ui-monospace, Me
         </div>
         <div class="row">
           <button class="btn small" id="another" type="button">Another video</button>
+          <button class="btn small" id="goLive" type="button" hidden>Live radio</button>
           <a id="ytLink" href="https://www.youtube.com/" target="_blank" rel="noopener">Open in YouTube</a>
         </div>
         <p class="status" id="npStatus" role="status"></p>
@@ -313,32 +328,33 @@ textarea.field { width: 100%; min-height: 120px; font: 13px/1.4 ui-monospace, Me
       <button class="btn small" id="ctxToggle" type="button" aria-expanded="false" aria-controls="ctxEdit">Change</button>
     </div>
     <div class="ctx" id="ctxEdit" hidden>
-      <div class="chips" id="cSeason" role="group" aria-label="Season"></div>
-      <div class="chips" id="cTime" role="group" aria-label="Time of day"></div>
-      <div class="chips" id="cSky" role="group" aria-label="Sky"></div>
-      <div class="row">
+      <div class="ctx-row"><span class="ctx-lab" aria-hidden="true">Season</span><div class="chips" id="cSeason" role="group" aria-label="Season"></div></div>
+      <div class="ctx-row"><span class="ctx-lab" aria-hidden="true">Time</span><div class="chips" id="cTime" role="group" aria-label="Time of day"></div></div>
+      <div class="ctx-row"><span class="ctx-lab" aria-hidden="true">Sky</span><div class="chips" id="cSky" role="group" aria-label="Sky"></div></div>
+      <div class="foot">
+        <label class="check"><input type="checkbox" id="optSky"> Use live Puget Sound weather</label>
         <button class="btn small" id="ctxAuto" type="button">Back to automatic</button>
-        <label class="row"><input type="checkbox" id="optSky"> Use live Puget Sound weather</label>
       </div>
     </div>
     <fieldset class="q">
       <legend>Where's your head?</legend>
-      <div class="chips" id="qHead">
-        <button class="chip" type="button" data-v="stuck" aria-pressed="false">Can't get started</button>
-        <button class="chip" type="button" data-v="ready" aria-pressed="false">Ready to work</button>
-        <button class="chip" type="button" data-v="rolling" aria-pressed="false">Already rolling</button>
-        <button class="chip" type="button" data-v="fried" aria-pressed="false">Fried</button>
+      <div class="tiles four" id="qHead">
+        <button class="chip" type="button" data-v="stuck" aria-pressed="false">Can't get started<small>something driving</small></button>
+        <button class="chip" type="button" data-v="ready" aria-pressed="false">Ready to work<small>steady</small></button>
+        <button class="chip" type="button" data-v="rolling" aria-pressed="false">Already rolling<small>steady</small></button>
+        <button class="chip" type="button" data-v="fried" aria-pressed="false">Fried<small>calm</small></button>
       </div>
     </fieldset>
     <fieldset class="q">
       <legend>What's the work?</legend>
-      <div class="chips" id="qWork">
+      <div class="tiles three" id="qWork">
         <button class="chip" type="button" data-v="words" aria-pressed="false">Words<small>no vocals</small></button>
         <button class="chip" type="button" data-v="numbers" aria-pressed="false">Numbers<small>light vocals at most</small></button>
         <button class="chip" type="button" data-v="routine" aria-pressed="false">Routine<small>anything goes</small></button>
       </div>
     </fieldset>
-    <div class="row">
+    <div class="foot line">
+      <label class="check"><input type="checkbox" id="optLive"> Prefer a station's live radio</label>
       <button class="btn solid" id="again" type="button" hidden>Same as last time</button>
     </div>
     <p class="status" id="pickStatus" role="status"></p>
@@ -470,8 +486,8 @@ const VOCALS = { 0: 'no vocals', 1: 'some vocals', 2: 'frequent vocals' };
 
 /* ───────── saved state (this browser only) ───────── */
 const KEY = 'undertone.v1';
-const state = { library: STARTER.map(s => ({ ...s })), log: {}, last: null, lists: {}, titles: {}, dur: {}, sky: null, liveSky: true, days: {},
-  opts: { preset: { f: 25, b: 5 }, onBreak: 'keep', auto: true, chime: true, scheme: 'poster', palette: 'video', fixed: 'inferno', solo: false, minLen: 3600 } };
+const state = { library: STARTER.map(s => ({ ...s })), log: {}, last: null, lists: {}, titles: {}, dur: {}, live: {}, sky: null, liveSky: true, days: {},
+  opts: { preset: { f: 25, b: 5 }, onBreak: 'keep', auto: true, chime: true, scheme: 'poster', palette: 'video', fixed: 'inferno', solo: false, minLen: 3600, live: true } };
 try {
   const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
   if (saved) {
@@ -483,6 +499,7 @@ try {
     if (saved.sky) state.sky = saved.sky;
     if (saved.days) state.days = saved.days;
     if (saved.dur) state.dur = saved.dur;
+    if (saved.live) state.live = saved.live;
     if (saved.liveSky === false) state.liveSky = false;
     if (saved.opts) Object.assign(state.opts, saved.opts);
   }
@@ -588,15 +605,15 @@ const PALETTES = {
   bubblegum: { name: 'Bubblegum', h: [318, 196, 52] },
   aurora:    { name: 'Aurora',    h: [176, 230, 278] },
   // tone: for each of the three colors, how vivid it is and how much lighter or darker, so one can be a mist grey
-  cascadia:  { name: 'Cascadia',  h: [212, 204, 150], sat: .5, tone: [[1, -6], [.2, 22], [1.05, -13]], muted: true },
+  cascadia:  { name: 'Cascadia',  h: [212, 204, 150], sat: .5, tone: [[1, -6], [.2, 22], [1.05, -13]] },
   // autumn, in watercolor: turning ash leaves, a cranberry bog, heirloom squash, frost, a fire at dusk, larches, fog
-  ash:       { name: 'White Ash', h: [90, 46, 354], sat: .6, stops: [90, 50, 28, 354], tone: [[.95, 3], [1.25, 10], [1, 3], [.85, -18]], muted: true },
-  bog:       { name: 'Cranberry Bog', h: [346, 192, 150], sat: .62, stops: [346, 356, 40, 150, 192], tone: [[1, -8], [.75, 6], [.22, 20], [.6, 2], [.85, -6]], muted: true },
-  gourds:    { name: 'Gourds',        h: [168, 30, 18],   sat: .62, stops: [168, 150, 48, 30, 18],  tone: [[.55, 2], [.4, 10], [.3, 18], [.9, 6], [1, -2]], muted: true },
-  frost:     { name: 'First Frost',   h: [214, 18, 210],  sat: .62, stops: [16, 24, 210, 214],      tone: [[1, -4], [.5, 8], [.14, 24], [.7, -4]], muted: true },
-  bonfire:   { name: 'Bonfire',       h: [238, 22, 44],   sat: .62, stops: [238, 250, 20, 44],      tone: [[.7, -8], [.15, 8], [1, -2], [.9, 8]], muted: true },
-  larch:     { name: 'Larch',         h: [150, 50, 208],  sat: .62, stops: [50, 70, 150, 190, 208], tone: [[1, 8], [.8, 2], [.75, -10], [.6, 0], [.75, 2]], muted: true },
-  hollow:    { name: 'Hollow',    h: [276, 256, 96], sat: .5, stops: [278, 252, 96], tone: [[.95, -7], [.16, 20], [.75, -2]], muted: true }
+  ash:       { name: 'White Ash', h: [90, 46, 354], sat: .6, stops: [90, 50, 28, 354], tone: [[.95, 3], [1.25, 10], [1, 3], [.85, -18]] },
+  bog:       { name: 'Cranberry Bog', h: [346, 192, 150], sat: .62, stops: [346, 356, 40, 150, 192], tone: [[1, -8], [.75, 6], [.22, 20], [.6, 2], [.85, -6]] },
+  gourds:    { name: 'Gourds',        h: [168, 30, 18],   sat: .62, stops: [168, 150, 48, 30, 18],  tone: [[.55, 2], [.4, 10], [.3, 18], [.9, 6], [1, -2]] },
+  frost:     { name: 'First Frost',   h: [214, 18, 210],  sat: .62, stops: [16, 24, 210, 214],      tone: [[1, -4], [.5, 8], [.14, 24], [.7, -4]] },
+  bonfire:   { name: 'Bonfire',       h: [238, 22, 44],   sat: .62, stops: [238, 250, 20, 44],      tone: [[.7, -8], [.15, 8], [1, -2], [.9, 8]] },
+  larch:     { name: 'Larch',         h: [150, 50, 208],  sat: .62, stops: [50, 70, 150, 190, 208], tone: [[1, 8], [.8, 2], [.75, -10], [.6, 0], [.75, 2]] },
+  hollow:    { name: 'Hollow',    h: [276, 256, 96], sat: .5, stops: [278, 252, 96], tone: [[.95, -7], [.16, 20], [.75, -2]] }
 };
 let curPalette = null, curLabel = '', booted = false, groundLum = 0;
 const solo = () => !!state.opts.solo;
@@ -746,7 +763,7 @@ function drawPalettes() {
   const grad = css => () => { const g = document.createElement('span'); g.className = 'prev grad'; g.style.background = css; return g; };
   const items = Object.entries(PALETTES).map(([key, f]) => {
     const c = t => cellColor(t, f, 'poster', null);              // the same colors the field will show
-    return { key, name: f.name, sub: f.muted ? 'muted' : '', preview: grad(`linear-gradient(90deg, ${[0, .25, .5, .75, 1].map(c).join(', ')})`) };
+    return { key, name: f.name, preview: grad(`linear-gradient(90deg, ${[0, .25, .5, .75, 1].map(c).join(', ')})`) };
   });
   if (!solo()) items.unshift({ key: 'video', name: 'From the video', preview: grad('conic-gradient(from 90deg, #f43, #fc3, #3c8, #38f, #c4f, #f43)') });
   ddPalette.set(items, solo() || state.opts.palette !== 'video' ? (PALETTES[state.opts.fixed] ? state.opts.fixed : 'inferno') : 'video');
@@ -921,6 +938,8 @@ function showPicker() {
 }
 $('again').addEventListener('click', () => state.last && pick(state.last.head, state.last.work));
 $('pickClose').addEventListener('click', () => $('pickDlg').close());
+$('optLive').checked = !!state.opts.live;
+$('optLive').addEventListener('change', e => { state.opts.live = e.target.checked; save(); drawStations(); });
 $('pickBtn').addEventListener('click', () => showPicker());
 function setStatus(id, text, warn) { const el = $(id); el.textContent = text || ''; el.classList.toggle('warn', !!(warn && text)); }
 
@@ -930,6 +949,7 @@ function setStatus(id, text, warn) { const el = $(id); el.textContent = text || 
    makes it impossible to tell whose videos you are choosing from. */
 let player = null, ready = false, apiState = 'idle', apiWaiter = null, token = 0, waitTimer = 0;
 let current = null, lists = [], listId = null, ids = [], lastVid = null, loggedVid = null, errors = 0, bad = new Set();
+let live = false, liveDone = null;                             // false, 'trying' or 'on'
 let opening = null, hintTimer = 0, skips = 0, lenSkips = 0, shortNote = '', passing = null, settle = false;
 let checking = null;
 
@@ -996,7 +1016,7 @@ function playStation(st, alternates) {
   $('idle').hidden = true; $('now').hidden = false;
   $('npTitle').textContent = 'Loading ' + st.name;
   $('npFrom').textContent = st.kind || '';
-  $('another').hidden = st.src.type === 'video';
+  $('another').hidden = st.src.type === 'video'; $('another').textContent = 'Another video'; $('goLive').hidden = true;
   $('ytLink').href = linkFor(st, null);
   setStatus('npStatus', location.protocol === 'file:' ? "This page is open as a file on disk, and YouTube only plays on pages opened from a web address." : '', true);
   drawStations();
@@ -1004,6 +1024,12 @@ function playStation(st, alternates) {
     build({ videoId: st.src.id, playerVars: { autoplay: 1 } }, () => { try { player.playVideo(); } catch (e) {} nudge(); });
     return;
   }
+  if (wantsLive(st)) return openLive(st);
+  openUploads(st);
+}
+function openUploads(st) {
+  live = false; liveDone = null;
+  $('another').textContent = 'Another video'; $('goLive').hidden = !hasLive(st);
   const known = state.lists[st.id];
   lists = known && sourceLists(st.src).includes(known) ? [known] : sourceLists(st.src);
   openList(got => {
@@ -1012,6 +1038,48 @@ function playStation(st, alternates) {
     ids = got; state.lists[st.id] = listId; save();
     playNext();
   });
+}
+/* Live radio. A channel's current live stream can be asked for by channel, without knowing
+   its video. Whether there is one, and whether it may play off YouTube, is only known by
+   trying: a real video id appears within a moment, or the player reports an error. A miss
+   is remembered for half a day so the station opens straight to its videos meanwhile. */
+const LIVE_RETRY = 12 * 3600e3;
+const hasLive = st => !!(state.live[st.id] && state.live[st.id].ok);
+function wantsLive(st) {
+  if (!state.opts.live || st.src.type !== 'channel') return false;
+  const seen = state.live[st.id];
+  return !(seen && !seen.ok && Date.now() - seen.at < LIVE_RETRY);
+}
+function openLive(st) {
+  live = 'trying'; $('goLive').hidden = true;
+  build({ videoId: 'live_stream', playerVars: { channel: st.src.id, autoplay: 1 } }, () => {
+    const my = token, t0 = Date.now();
+    liveDone = ok => {
+      if (my !== token || live !== 'trying') return;
+      clearInterval(waitTimer); liveDone = null;
+      state.live[st.id] = { ok, at: Date.now() }; save();
+      if (!ok) return openUploads(st);
+      live = 'on';
+      $('another').textContent = 'Play a video instead';
+      try { player.playVideo(); } catch (e) {}
+      nudge(); drawStations();
+    };
+    if (live === 'failed') { live = 'trying'; return liveDone(false); }   // the error arrived before the player said it was ready
+    waitTimer = setInterval(() => {
+      if (my !== token) return clearInterval(waitTimer);
+      let id = ''; try { id = (player.getVideoData() || {}).video_id || ''; } catch (e) {}
+      if (isVid(id)) liveDone(true); else if (Date.now() - t0 > 2500) liveDone(false);
+    }, 100);
+  });
+}
+const isVid = id => /^[\w-]{11}$/.test(id) && id !== 'live_stream';
+/* from the live radio to the station's videos, or back */
+function switchSource(toLive) {
+  if (!current || current.src.type !== 'channel') return;
+  const st = current;
+  lastVid = loggedVid = null; errors = 0; skips = 0; lenSkips = 0; shortNote = ''; passing = null; settle = false; ids = []; bad = new Set(); clearTimeout(hintTimer);
+  $('npTitle').textContent = 'Loading ' + st.name; setStatus('npStatus', '');
+  if (toLive) openLive(st); else openUploads(st);
 }
 /* some browsers, iPhone Safari among them, won't start sound until the video itself is tapped */
 function nudge() {
@@ -1112,29 +1180,31 @@ async function playNext() {
 function onStateChange(e) {
   if (checking || !current) return;
   const d = player.getVideoData() || {};
-  if (!d.video_id) return;
+  if (!d.video_id || !isVid(d.video_id)) return;
+  if (live === 'trying' && liveDone) liveDone(true);
+  const single = current.src.type === 'video' || !!live;       // nothing to skip to
   if (d.video_id !== lastVid) {                                 // a new video is on screen: show it and re-color
     lastVid = d.video_id; errors = 0;
-    $('npFrom').textContent = [current.name, current.kind].filter(Boolean).join(', ');
-    $('ytLink').href = linkFor(current, lastVid);
+    $('npFrom').textContent = [current.name, live ? 'live radio' : current.kind].filter(Boolean).join(', ');
+    $('ytLink').href = live ? 'https://www.youtube.com/watch?v=' + lastVid : linkFor(current, lastVid);
     themeFromVideo(lastVid, current);
   }
   $('npTitle').textContent = d.title || current.name;
   if (bad.has(lastVid) || lastVid === passing) return;          // already being skipped
   if (d.title && state.titles[lastVid] === undefined) {         // title wasn't known when this was chosen, so weigh it now
     state.titles[lastVid] = d.title;
-    if (current.src.type !== 'video' && titleFit(d.title) <= -3 && skips < 2 && ids.length > 2 && Math.random() < .7) {
+    if (!single && titleFit(d.title) <= -3 && skips < 2 && ids.length > 2 && Math.random() < .7) {
       skips++; bad.add(lastVid); return playNext();
     }
   }
   let secs = 0; try { secs = Math.round(player.getDuration() || 0); } catch (x) {}
-  if (secs > 0 && !d.isLive && lastVid !== loggedVid) {         // the length is known now: remember it, and skip if it's too short
+  if (secs > 0 && !d.isLive && !live && lastVid !== loggedVid) {         // the length is known now: remember it, and skip if it's too short
     if (state.dur[lastVid] !== secs) {
       state.dur[lastVid] = secs;
       const all = Object.keys(state.dur); if (all.length > 5000) all.slice(0, 1000).forEach(k => delete state.dur[k]);
     }
     const min = minLen();
-    if (min && secs < min && current.src.type !== 'video') {
+    if (min && secs < min && !single) {
       if (!settle && lenSkips < 8 && ids.length > 2) {
         lenSkips++; passing = lastVid; save();
         setStatus('npStatus', `That one is under ${lenLabel(min)}. Finding a longer one.`);
@@ -1157,6 +1227,11 @@ function onError(e) {
   if (opening) { const done = opening; clearInterval(waitTimer); return openList(done); }   // this list doesn't exist: try the next
   if (checking) { checking.err = e.data; return; }
   if (!current) return;
+  if (live === 'trying') { if (liveDone) liveDone(false); else live = 'failed'; return; }
+  if (live === 'on') {                                           // the stream has stopped, or stopped allowing this
+    state.live[current.id] = { ok: false, at: Date.now() }; save(); drawStations();
+    return switchSource(false);
+  }
   errors++;
   if (current.src.type !== 'video' && ids.length > 1 && errors < 8) {
     try { bad.add(ids[player.getPlaylistIndex()]); } catch (x) {}
@@ -1182,7 +1257,7 @@ function drawStations() {
   });
   const order = state.last ? rank(state.last.head, state.last.work) : state.library.slice();
   const rest = state.library.filter(s => !order.includes(s));
-  const items = [{ key: '__pick', name: 'Pick for me…' }].concat(order.concat(rest).map(s => ({ key: s.id, name: s.name, sub: s.kind })));
+  const items = [{ key: '__pick', name: 'Pick for me…' }].concat(order.concat(rest).map(s => ({ key: s.id, name: s.name, sub: [s.kind, hasLive(s) && state.opts.live ? 'live' : ''].filter(Boolean).join(' · ') })));
   ddStation.set(items, current ? current.id : '__pick');
 }
 function showIdle() {
@@ -1190,7 +1265,8 @@ function showIdle() {
   setStatus('idleStatus', location.protocol === 'file:' ? "This page is open as a file on disk. YouTube only plays on pages opened from a web address." : '', true);
   drawStations();
 }
-$('another').addEventListener('click', () => { if (ready && ids.length > 1) playNext(); });
+$('another').addEventListener('click', () => { if (live) return switchSource(false); if (ready && ids.length > 1) playNext(); });
+$('goLive').addEventListener('click', () => switchSource(true));
 $('ytLink').addEventListener('click', () => { try { if (ready) player.pauseVideo(); } catch (e) {} });
 
 /* ───────── timer only ─────────
