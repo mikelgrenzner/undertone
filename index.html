@@ -390,6 +390,7 @@ textarea.field { width: 100%; min-height: 120px; font: 13px/1.4 ui-monospace, Me
           <option value="7200">2 hours</option>
         </select>
       </label>
+      <label><input type="checkbox" id="optUnheard"> Only play videos I haven't heard yet</label>
       <label><input type="checkbox" id="optAuto"> Start the next block automatically</label>
       <label><input type="checkbox" id="optChime"> Play a chime when a block ends</label>
       <div class="row">
@@ -487,7 +488,7 @@ const VOCALS = { 0: 'no vocals', 1: 'some vocals', 2: 'frequent vocals' };
 /* ───────── saved state (this browser only) ───────── */
 const KEY = 'undertone.v1';
 const state = { library: STARTER.map(s => ({ ...s })), log: {}, last: null, lists: {}, titles: {}, dur: {}, live: {}, liveSeen: {}, rec: {}, sky: null, liveSky: true, days: {},
-  opts: { preset: { f: 25, b: 5 }, onBreak: 'keep', auto: true, chime: true, scheme: 'poster', palette: 'video', fixed: 'inferno', solo: false, minLen: 3600, live: true } };
+  opts: { preset: { f: 25, b: 5 }, onBreak: 'keep', auto: true, chime: true, scheme: 'poster', palette: 'video', fixed: 'inferno', solo: false, minLen: 3600, live: true, unheard: false } };
 try {
   const saved = JSON.parse(localStorage.getItem(KEY) || 'null');
   if (saved) {
@@ -1083,6 +1084,9 @@ async function chooseLive() {
     c.title = titles[k]; c.sure = seenLive(ids[c.i]) ? 3 : LIVE_HINT.test(c.title) ? 2.5 : 0; cands.push(c);
   });
   save();
+  if (newest()) {                                                // the stream started most recently, skipping known recordings
+    return cands.length ? cands[0].i : -1;
+  }
   const known = cands.filter(c => c.sure), guess = cands.filter(c => !c.sure && (!known.length || c.i < 12));
   known.forEach(c => { c.w = c.sure * titleWeight(c.title) * (c.fresh ? 1 : .2); });
   // the unproven ones share a quarter of the draw between them, so a wrong guess stays occasional
@@ -1102,7 +1106,7 @@ function notLive(vid) {
   state.rec[vid] = Date.now();
   const all = Object.keys(state.rec); if (all.length > 2000) all.slice(0, 500).forEach(k => delete state.rec[k]);
   passing = vid; save();
-  if (++liveSkips <= 5) return playNext();
+  if (++liveSkips <= (newest() ? 12 : 5)) return playNext();
   noLive();
 }
 /* nothing else on the list is live: go back to one that is, or to the channel's videos */
@@ -1155,12 +1159,21 @@ async function fetchTitle(vid) {
     return (state.titles[vid] = String((await r.json()).title || ''));
   } catch (e) { return ''; }
 }
+/* A channel's lists come newest first: uploads by release date, live streams by start.
+   The page goes down the list in that order, newest first, carrying on from the one
+   playing. With "only unheard" it takes the newest it hasn't played, and only goes back
+   to heard ones, longest ago first, when there are none left. */
+const newest = () => true;
 function candidates() {
-  const seen = (state.log[current.id] && state.log[current.id].vids) || {};
   const ok = ids.map((v, i) => i).filter(i => ids[i] !== lastVid && !bad.has(ids[i]));
+  if (!state.opts.unheard) {
+    const at = lastVid ? ids.indexOf(lastVid) : -1;
+    const after = ok.filter(i => i > at), before = ok.filter(i => i < at);
+    return after.concat(before).map(i => ({ i, fresh: true }));
+  }
+  const seen = (state.log[current.id] && state.log[current.id].vids) || {};
   const fresh = ok.filter(i => !seen[ids[i]]);
-  for (let i = fresh.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [fresh[i], fresh[j]] = [fresh[j], fresh[i]]; }
-  const heard = ok.filter(i => seen[ids[i]]).sort((p, q) => seen[ids[p]] - seen[ids[q]]);   // longest ago first
+  const heard = ok.filter(i => seen[ids[i]]).sort((p, q) => seen[ids[p]] - seen[ids[q]]);
   return fresh.map(i => ({ i, fresh: true })).concat(heard.map(i => ({ i, fresh: false })));
 }
 /* how likely a video is to be chosen next to its neighbours: other seasons still play, just not often */
@@ -1202,16 +1215,21 @@ async function chooseIndex() {
     const batch = order.slice(from, from + 30).filter(usable);
     const titles = await Promise.all(batch.map(c => fetchTitle(ids[c.i])));
     if (st !== current) return order[0].i;
+    let first = null;
     batch.forEach((c, k) => {
       if (titles[k] === null) return bad.add(ids[c.i]);
-      c.w = titleWeight(titles[k]) * lengthWeight(ids[c.i], titles[k], min) * (c.fresh ? 1 : .2);
+      const lw = lengthWeight(ids[c.i], titles[k], min);
+      c.w = titleWeight(titles[k]) * lw * (c.fresh ? 1 : .2);
       if (c.w > 0) pool.push(c);
+      if (!first && lw >= .6) first = c;   // date order; only plainly short ones are passed over
     });
-    if (pool.filter(c => c.w >= 1).length >= 4) break;           // enough good candidates; no need to look further down the list
+    if (newest() && first) { pool.length = 0; pool.push(first); break; }
+    if (!newest() && pool.filter(c => c.w >= 1).length >= 4) break;           // enough good candidates; no need to look further down the list
   }
   const keys = Object.keys(state.titles);
   if (keys.length > 3000) keys.slice(0, 600).forEach(k => delete state.titles[k]);
   save();
+  if (newest() && pool.length) return pool[0].i;                 // nothing passed: the newest of what's left
   if (!pool.length) {                                            // nothing long enough is left: settle for the longest of the rest
     const rest = order.filter(c => !bad.has(ids[c.i]));
     if (!rest.length) return order[0].i;
@@ -1580,6 +1598,8 @@ document.addEventListener('keydown', e => {
 $('optBreak').value = state.opts.onBreak; $('optAuto').checked = state.opts.auto; $('optChime').checked = state.opts.chime;
 $('optMin').value = String(minLen());
 $('optMin').addEventListener('change', e => { state.opts.minLen = +e.target.value; save(); });
+$('optUnheard').checked = !!state.opts.unheard;
+$('optUnheard').addEventListener('change', e => { state.opts.unheard = e.target.checked; save(); });
 $('optBreak').addEventListener('change', e => { state.opts.onBreak = e.target.value; save(); });
 $('optAuto').addEventListener('change', e => { state.opts.auto = e.target.checked; save(); });
 $('optChime').addEventListener('change', e => { state.opts.chime = e.target.checked; save(); });
